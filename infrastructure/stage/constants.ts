@@ -1,16 +1,13 @@
 import * as path from 'path';
-import { EVENT_BUS_NAME } from '@orcabus/platform-cdk-constructs/shared-config/event-bridge';
 
-/** Absolute path to the Python app directory (contains requirements.txt) */
+/** Absolute path to the Python app directory (contains Dockerfile) */
 export const APP_ROOT = path.join(__dirname, '../../app');
 
-/** Shared OrcaBus EventBridge bus name */
-export const EVENT_BUS = EVENT_BUS_NAME; // "OrcaBusMain"
+/** Testdata S3 bucket */
+export const TESTDATA_BUCKET = 'test-data-503977275616-ap-southeast-2';
 
-/** Events this service consumes */
-export const INCOMING_EVENT_SOURCE = 'orcabus.workflowmanager';
-export const INCOMING_DETAIL_TYPE = 'WorkflowRunStateChange';
-export const INCOMING_WORKFLOW_NAME = 'hello-world';
+/** S3 URI of the testdata cases config (uploaded separately) */
+export const TESTDATA_CONFIG_S3_URI = `s3://${TESTDATA_BUCKET}/testdata/config/sash-regression/testdata-cases.yaml`;
 
-/** Events this service emits */
-export const OUTGOING_EVENT_SOURCE = 'orcabus.helloworld';
+/** S3 prefix where comparison results are written */
+export const RESULT_S3_PREFIX = `s3://${TESTDATA_BUCKET}/testdata/analysis/production/sash`;
