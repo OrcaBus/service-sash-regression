@@ -1,0 +1,6 @@
+-r requirements.txt
+boto3>=1.26
+pytest>=7.0
+pytest-cov>=4.0
+moto[events]>=5.0
+ruff>=0.4
