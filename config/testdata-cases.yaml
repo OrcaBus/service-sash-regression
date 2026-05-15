@@ -1,0 +1,19 @@
+# Testdata cases for sash regression comparisons.
+# run1 = baseline (already in S3 from prod run)
+# run2 = new version under test
+#
+# S3 paths follow the hofmann-lab/testdata convention:
+#   s3://test-data-503977275616-ap-southeast-2/testdata/analysis/production/sash/<version>/<case>/<exec_id>/
+
+alias_run1: "sash 0.6.4"
+alias_run2: "sash 0.7.0"
+
+pairs:
+  - tumor: L2301218
+    normal: L2301217
+    run1: s3://test-data-503977275616-ap-southeast-2/testdata/analysis/production/sash/0.6.4/SEQC-II-medium/
+    run2: s3://test-data-503977275616-ap-southeast-2/testdata/analysis/production/sash/0.7.0/SEQC-II-medium/
+    metadata:
+      subject: SBJ00480
+      case: SEQC-II-medium
+      cohort: SEQC-II

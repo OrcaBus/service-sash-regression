@@ -10,6 +10,8 @@ cdk.out
 # Python
 *__pycache__*
 .coverage
+*.pyc
+.env
 
 # IDE
 .idea

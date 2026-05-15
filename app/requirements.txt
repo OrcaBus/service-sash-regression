@@ -1,1 +1,5 @@
-pydantic>=2.0
+boto3>=1.34
+pysam>=0.22
+cyvcf2>=0.31
+pandas>=2.0
+pyyaml>=6.0
