@@ -15,13 +15,14 @@ def _make_mock_result(returncode: int, stderr: str = "") -> MagicMock:
 
 
 class TestRunComparison:
-    def test_returns_summary_json_on_success(self, tmp_path):
+    def test_returns_metrics_json_on_success(self, tmp_path):
         expected = {"status": "ok", "matches": 5}
 
         def fake_subprocess(cmd, **kwargs):
+            assert "--json-mode" not in cmd, "--json-mode is not a valid script flag"
             out_dir = Path(cmd[cmd.index("--output") + 1])
             out_dir.mkdir(parents=True, exist_ok=True)
-            (out_dir / "summary.json").write_text(json.dumps(expected))
+            (out_dir / "metrics.json").write_text(json.dumps(expected))
             return _make_mock_result(0)
 
         with patch("comparator.comparison.subprocess.run", side_effect=fake_subprocess):
@@ -34,11 +35,10 @@ class TestRunComparison:
             with pytest.raises(RuntimeError, match="comprehensive_sash_comparison"):
                 run_comparison(tmp_path / "r1", tmp_path / "r2", "T", "N", tmp_path / "out")
 
-    def test_returns_status_dict_when_no_summary_json(self, tmp_path):
+    def test_returns_status_dict_when_no_metrics_json(self, tmp_path):
         def fake_subprocess(cmd, **kwargs):
             out_dir = Path(cmd[cmd.index("--output") + 1])
             out_dir.mkdir(parents=True, exist_ok=True)
-            # no summary.json written
             return _make_mock_result(0)
 
         with patch("comparator.comparison.subprocess.run", side_effect=fake_subprocess):
