@@ -73,8 +73,8 @@ def handler(event: dict, context) -> dict:
             download_s3_dir(pair["run2"], run2_dir)
 
             # Schema check
-            schema_run1 = check_schema(run1_dir, tumor)
-            schema_run2 = check_schema(run2_dir, tumor)
+            schema_run1 = check_schema(run1_dir, tumor, normal)
+            schema_run2 = check_schema(run2_dir, tumor, normal)
 
             schema_result = {
                 "baseline": schema_run1,
