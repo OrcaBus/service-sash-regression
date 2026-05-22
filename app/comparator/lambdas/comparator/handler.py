@@ -99,9 +99,12 @@ def handler(event: dict, context) -> dict:
 
             # Upload output files to S3
             exec_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-            s3_out_prefix = f"{RESULT_S3_PREFIX.rstrip('/')}/{new_version}/{subject}/{exec_id}/test/"
-            for f in output_dir.iterdir():
-                upload_file(f, f"{s3_out_prefix}data/{f.name}")
+            case_id = pair["metadata"].get("case", f"{tumor}_{normal}")
+            s3_out_prefix = f"{RESULT_S3_PREFIX.rstrip('/')}/{new_version}-vs-{baseline_version}/{case_id}/{exec_id}/test/"
+            for f in output_dir.rglob("*"):
+                if f.is_file():
+                    rel = f.relative_to(output_dir)
+                    upload_file(f, f"{s3_out_prefix}data/{rel}")
 
     summary = {
         "new_version": new_version,
