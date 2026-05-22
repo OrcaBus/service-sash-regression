@@ -21,7 +21,9 @@ def download_s3_dir(s3_uri: str, local_dir: Path) -> None:
         for obj in page.get("Contents", []):
             key = obj["Key"]
             rel = key[len(prefix):].lstrip("/")
-            dest = local_dir / rel
+            dest = (local_dir / rel).resolve()
+            if not str(dest).startswith(str(local_dir.resolve())):
+                raise ValueError(f"S3 key escapes local_dir: {key!r}")
             dest.parent.mkdir(parents=True, exist_ok=True)
             logger.debug(f"Downloading s3://{bucket}/{key} → {dest}")
             s3.download_file(bucket, key, str(dest))
