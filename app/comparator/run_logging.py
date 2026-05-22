@@ -47,10 +47,22 @@ def setup_run_logging(output_dir: Path, config_path: Optional[Path] = None) -> P
 
     log_path = output_dir / "run.log"
     log_handle = log_path.open("w", encoding="utf-8", buffering=1)
-    atexit.register(log_handle.close)
 
+    original_stdout = sys.stdout
+    original_stderr = sys.stderr
     sys.stdout = Tee(sys.stdout, log_handle)
     sys.stderr = Tee(sys.stderr, log_handle)
+
+    def _cleanup():
+        sys.stdout = original_stdout
+        sys.stderr = original_stderr
+        try:
+            log_handle.flush()
+            log_handle.close()
+        except Exception:
+            pass
+
+    atexit.register(_cleanup)
 
     command_line = shlex.join(sys.argv)
     (output_dir / "command.txt").write_text(f"{command_line}\n", encoding="utf-8")

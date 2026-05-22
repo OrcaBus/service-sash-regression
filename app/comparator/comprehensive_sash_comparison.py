@@ -127,8 +127,11 @@ class SashRunAnalyzer:
         # 3. run_dir/{tumor}_{normal}/{tumor}_{normal}/ (old 0.6.X: single underscore dir, then same)
         # 4. run_dir/{tumor}__{normal}/ (direct double underscore under run_dir)
         
-        # If run_dir itself is already the pair directory with double underscores
+        # If run_dir itself is already the pair directory (double or single underscore)
         if p.name == f"{self.tumor}__{self.normal}":
+            return str(p)
+
+        if p.name == f"{self.tumor}_{self.normal}":
             return str(p)
         
         # If there's a single-underscore directory under p (common layout), prefer it
@@ -2076,7 +2079,7 @@ class ComparisonReporter:
         key_width = max(10, max(len(str(k)) for k in all_keys) + 2)
         value_width = max(12, len(self.run1_name) + 4, len(self.run2_name) + 4)
         header = (f"{indent_str}{'Key':<{key_width}} {self.run1_name:<{value_width}} "
-                  f"{self.run2_name:<{value_width}} {'Δ':<12}")
+                  f"{self.run2_name:<{value_width}} {'Delta':<12}")
 
         lines = [f"{indent_str}{title}:", header,
                  f"{indent_str}" + "-" * (len(header) - len(indent_str))]
@@ -2186,7 +2189,7 @@ class ComparisonReporter:
             val1_str = self._safe_str(val1)
             val2_str = self._safe_str(val2)
             lines.append(
-                f"    {metric}: {val1_str} → {val2_str} "
+                f"    {metric}: {val1_str} -> {val2_str} "
                 f"({self._format_numeric_diff(delta)})"
             )
 
@@ -2195,12 +2198,12 @@ class ComparisonReporter:
             for entry in text[:remaining]:
                 _, _, metric, val1, val2, _ = entry
                 lines.append(
-                    f"    {metric}: '{self._safe_str(val1)}' → '{self._safe_str(val2)}'"
+                    f"    {metric}: '{self._safe_str(val1)}' -> '{self._safe_str(val2)}'"
                 )
 
         hidden = len(diffs) - len(lines)
         if hidden > 0:
-            lines.append(f"    … {hidden} additional metrics changed")
+            lines.append(f"    ... {hidden} additional metrics changed")
 
         return lines
     
@@ -2224,7 +2227,7 @@ class ComparisonReporter:
         # Table header with better formatting
         header = f"{'Metric':<{key_width}} {self.run1_name:<{value_width}} {self.run2_name:<{value_width}} {'Change':<12} {'Ratio':<8}"
         lines.append(header)
-        lines.append("─" * len(header))
+        lines.append("-" * len(header))
         
         # Group metrics by type for better readability
         numeric_metrics = []
@@ -2241,14 +2244,14 @@ class ComparisonReporter:
         
         # Display numeric metrics first (they're usually more important)
         for key, val1, val2 in numeric_metrics:
-            diff = "─"
-            ratio = "─"
+            diff = "-"
+            ratio = "-"
             
             if val1 is not None and val2 is not None:
                 try:
                     if isinstance(val1, (int, float)) and isinstance(val2, (int, float)):
                         diff = val2 - val1
-                        ratio = val2 / val1 if val1 != 0 else "∞"
+                        ratio = val2 / val1 if val1 != 0 else "inf"
                         
                         # Format difference with appropriate precision
                         if isinstance(diff, float) and abs(diff) < 0.001:
@@ -2278,14 +2281,14 @@ class ComparisonReporter:
         
         # Add separator if both types exist
         if numeric_metrics and string_metrics:
-            lines.append("┈" * len(header))
+            lines.append("-" * len(header))
         
         # Display string metrics
         for key, val1, val2 in string_metrics:
             change_indicator = "=" if val1 == val2 else "[CHANGED]"
             val1_str = self._safe_str(val1)
             val2_str = self._safe_str(val2)
-            lines.append(f"{key:<{key_width}} {val1_str:<{value_width}} {val2_str:<{value_width}} {change_indicator:<12} {'─':<8}")
+            lines.append(f"{key:<{key_width}} {val1_str:<{value_width}} {val2_str:<{value_width}} {change_indicator:<12} {'-':<8}")
         
         return lines
     
@@ -2492,11 +2495,10 @@ class ComparisonReporter:
                 changed_files.append(step_desc)
         
         # Create visual status overview
-        lines.append("┌─ STATUS OVERVIEW ─────────────────────────────────────────┐")
-        lines.append(f"│ Changed Files:   {len(changed_files):>3} files                                 │")
-        lines.append(f"│ Identical Files: {len(identical_files):>3} files                                 │")
-        lines.append(f"│ Missing Files:   {len(missing_files):>3} files                                 │")
-        lines.append("└───────────────────────────────────────────────────────────┘")
+        lines.append("STATUS OVERVIEW")
+        lines.append(f"  Changed Files:   {len(changed_files):>3} files")
+        lines.append(f"  Identical Files: {len(identical_files):>3} files")
+        lines.append(f"  Missing Files:   {len(missing_files):>3} files")
         lines.append("")
         
         # Detailed breakdown
@@ -2634,7 +2636,7 @@ class ComparisonReporter:
             if val1 == val2:
                 continue
             base_name = detail_key[:-9] if detail_key.endswith('__details') else detail_key
-            detail_lines.append(f"• {base_name} details differ:")
+            detail_lines.append(f"- {base_name} details differ:")
             if val1 is not None and val1 not in ('', 'N/A', 'n/a', 'na'):
                 detail_lines.append(f"    {self.run1_name}: {self._safe_str(val1)}")
             if val2 is not None and val2 not in ('', 'N/A', 'n/a', 'na'):
@@ -3068,10 +3070,10 @@ class ComparisonReporter:
         lines.append("")
         lines.append("ANALYSIS METHODOLOGY:")
         lines.append("=" * 21)
-        lines.append("• Files are compared by content (metrics and values)")
-        lines.append("• All files undergo detailed content analysis regardless of MD5 checksums")
-        lines.append("• All comparisons focus on metrics and content, not file sizes")
-        lines.append("• PAVE-affected files are clearly marked for MNV filtering impact assessment")
+        lines.append("- Files are compared by content (metrics and values)")
+        lines.append("- All files undergo detailed content analysis regardless of MD5 checksums")
+        lines.append("- All comparisons focus on metrics and content, not file sizes")
+        lines.append("- PAVE-affected files are clearly marked for MNV filtering impact assessment")
         lines.append("")
         lines.append("PAVE-IMPACTED MODULES AND METRICS ANALYZED:")
         lines.append("=" * 45)
