@@ -10,4 +10,4 @@ export const TESTDATA_BUCKET = 'test-data-503977275616-ap-southeast-2';
 export const TESTDATA_CONFIG_S3_URI = `s3://${TESTDATA_BUCKET}/testdata/config/sash-regression/testdata-cases.yaml`;
 
 /** S3 prefix where comparison results are written */
-export const RESULT_S3_PREFIX = `s3://${TESTDATA_BUCKET}/testdata/analysis/production/sash`;
+export const RESULT_S3_PREFIX = `s3://${TESTDATA_BUCKET}/testdata/analysis/production/sash-regression`;
