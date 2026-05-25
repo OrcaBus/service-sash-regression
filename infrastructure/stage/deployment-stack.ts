@@ -3,7 +3,7 @@ import { Construct } from 'constructs';
 import { DockerImageCode, DockerImageFunction } from 'aws-cdk-lib/aws-lambda';
 import { aws_lambda, Duration, Size, Stack, StackProps } from 'aws-cdk-lib';
 import { ManagedPolicy, PolicyStatement, Role, ServicePrincipal } from 'aws-cdk-lib/aws-iam';
-import { APP_ROOT, getStageConstants } from './constants';
+import { APP_ROOT, TESTDATA_BUCKET, RESULTS_BUCKET, getStageConstants } from './constants';
 import { StageName } from '@orcabus/platform-cdk-constructs/shared-config/accounts';
 
 export interface SashRegressionStackProps extends StackProps {
@@ -16,9 +16,7 @@ export class SashRegressionStack extends Stack {
   constructor(scope: Construct, id: string, props: SashRegressionStackProps) {
     super(scope, id, props);
 
-    const { resultBucket, testdataConfigS3Uri, resultS3Prefix } = getStageConstants(
-      props.stage as StageName
-    );
+    const { testdataConfigS3Uri, resultS3Prefix } = getStageConstants(props.stage as StageName);
 
     this.lambdaRole = new Role(this, 'LambdaRole', {
       assumedBy: new ServicePrincipal('lambda.amazonaws.com'),
@@ -39,13 +37,24 @@ export class SashRegressionStack extends Stack {
       })
     );
 
-    // Read config + write results (bucket varies by stage)
+    // Read baseline config from testdata bucket (read-only — never write here)
     this.lambdaRole.addToPolicy(
       new PolicyStatement({
-        actions: ['s3:GetObject', 's3:PutObject', 's3:ListBucket'],
+        actions: ['s3:GetObject', 's3:ListBucket'],
         resources: [
-          `arn:aws:s3:::${resultBucket}`,
-          `arn:aws:s3:::${resultBucket}/*`,
+          `arn:aws:s3:::${TESTDATA_BUCKET}`,
+          `arn:aws:s3:::${TESTDATA_BUCKET}/*`,
+        ],
+      })
+    );
+
+    // Write comparison results to umccr-research-dev (all stages)
+    this.lambdaRole.addToPolicy(
+      new PolicyStatement({
+        actions: ['s3:PutObject', 's3:ListBucket'],
+        resources: [
+          `arn:aws:s3:::${RESULTS_BUCKET}`,
+          `arn:aws:s3:::${RESULTS_BUCKET}/*`,
         ],
       })
     );

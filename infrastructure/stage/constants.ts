@@ -4,21 +4,20 @@ import { StageName } from '@orcabus/platform-cdk-constructs/shared-config/accoun
 /** Absolute path to the Python app directory (contains Dockerfile) */
 export const APP_ROOT = path.join(__dirname, '../../app');
 
-/** BETA writes to the research-dev bucket; GAMMA/PROD write to the testdata bucket */
-export const RESULT_BUCKET_BY_STAGE: Record<StageName, string> = {
-  BETA: 'umccr-research-dev',
-  GAMMA: 'test-data-503977275616-ap-southeast-2',
-  PROD: 'test-data-503977275616-ap-southeast-2',
-};
+/**
+ * testdata bucket is READ-ONLY for this service — it provides baseline reference data only.
+ * Comparison results ALWAYS go to umccr-research-dev regardless of stage.
+ * Admin promotes validated results to testdata manually (one-way archive flow).
+ */
+export const TESTDATA_BUCKET = 'test-data-503977275616-ap-southeast-2';
+export const RESULTS_BUCKET = 'umccr-research-dev';
 
 const CONFIG_KEY = 'testdata/config/sash-regression/testdata-cases.yaml';
-const RESULT_KEY_PREFIX = 'testdata/analysis/production/sash-regression';
+const RESULT_KEY_PREFIX = 'sash-regression';
 
-export const getStageConstants = (stage: StageName) => {
-  const bucket = RESULT_BUCKET_BY_STAGE[stage];
+export const getStageConstants = (_stage: StageName) => {
   return {
-    resultBucket: bucket,
-    testdataConfigS3Uri: `s3://${bucket}/${CONFIG_KEY}`,
-    resultS3Prefix: `s3://${bucket}/${RESULT_KEY_PREFIX}`,
+    testdataConfigS3Uri: `s3://${TESTDATA_BUCKET}/${CONFIG_KEY}`,
+    resultS3Prefix: `s3://${RESULTS_BUCKET}/${RESULT_KEY_PREFIX}`,
   };
 };
