@@ -23,3 +23,5 @@ config/event_schemas/
 
 # Ignore all files under `.venv`
 .venv/
+
+.claude/
