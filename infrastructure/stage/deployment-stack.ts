@@ -47,10 +47,10 @@ export class SashRegressionStack extends Stack {
       })
     );
 
-    // Write comparison results to umccr-research-dev (all stages)
+    // Read config and write results to umccr-research-dev (all stages)
     this.lambdaRole.addToPolicy(
       new PolicyStatement({
-        actions: ['s3:PutObject', 's3:ListBucket'],
+        actions: ['s3:GetObject', 's3:PutObject', 's3:ListBucket'],
         resources: [`arn:aws:s3:::${RESULTS_BUCKET}`, `arn:aws:s3:::${RESULTS_BUCKET}/*`],
       })
     );

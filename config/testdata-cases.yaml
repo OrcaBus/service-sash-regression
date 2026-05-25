@@ -12,8 +12,8 @@ alias_run2: 'sash 0.7.0'
 pairs:
   - tumor: L2301218
     normal: L2301217
-    run1: s3://pipeline-prod-cache-503977275616-ap-southeast-2/byob-icav2/production/analysis/sash/202605212fa0b7ec/L2301218__L2301217/
-    run2: s3://pipeline-prod-cache-503977275616-ap-southeast-2/byob-icav2/production/analysis/sash/2026052194996946/L2301218__L2301217/
+    run1: s3://umccr-research-dev/quentin/sash-regression/testdata/run1/L2301218__L2301217/
+    run2: s3://umccr-research-dev/quentin/sash-regression/testdata/run2/L2301218__L2301217/
     metadata:
       subject: SBJ00480
       case: SEQC-II-medium

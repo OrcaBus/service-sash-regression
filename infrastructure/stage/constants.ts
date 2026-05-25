@@ -12,12 +12,13 @@ export const APP_ROOT = path.join(__dirname, '../../app');
 export const TESTDATA_BUCKET = 'test-data-503977275616-ap-southeast-2';
 export const RESULTS_BUCKET = 'umccr-research-dev';
 
-const CONFIG_KEY = 'testdata/config/sash-regression/testdata-cases.yaml';
+const CONFIG_KEY = 'quentin/sash-regression/config/testdata-cases.yaml';
 const RESULT_KEY_PREFIX = 'sash-regression';
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 export const getStageConstants = (_stage: StageName) => {
   return {
-    testdataConfigS3Uri: `s3://${TESTDATA_BUCKET}/${CONFIG_KEY}`,
+    testdataConfigS3Uri: `s3://${RESULTS_BUCKET}/${CONFIG_KEY}`,
     resultS3Prefix: `s3://${RESULTS_BUCKET}/${RESULT_KEY_PREFIX}`,
   };
 };

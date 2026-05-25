@@ -91,12 +91,6 @@ def handler(event: dict, context) -> dict:
             output_dir = tmp_path / "output" / f"{tumor}_{normal}"
             comparison_result = run_comparison(run1_dir, run2_dir, tumor, normal, output_dir)
 
-            results.append({
-                "subject": subject,
-                "schema": schema_result,
-                "comparison": comparison_result,
-            })
-
             # Upload output files to S3
             exec_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
             case_id = pair["metadata"].get("case", f"{tumor}_{normal}")
@@ -106,6 +100,12 @@ def handler(event: dict, context) -> dict:
                     rel = f.relative_to(output_dir)
                     upload_file(f, f"{s3_out_prefix}data/{rel}")
 
+            results.append({
+                "subject": subject,
+                "schema": schema_result,
+                "s3_results": s3_out_prefix,
+            })
+
     summary = {
         "new_version": new_version,
         "baseline_version": baseline_version,
@@ -113,5 +113,5 @@ def handler(event: dict, context) -> dict:
         "all_schema_passed": all(r["schema"]["passed"] for r in results),
     }
 
-    logger.info(f"Done: {json.dumps(summary, indent=2)}")
+    logger.info(f"Done: {json.dumps(summary, default=str)}")
     return summary
