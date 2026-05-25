@@ -20,7 +20,7 @@ if (!deployMode) {
 }
 
 if (deployMode === 'stateless') {
-  new StatelessStack(app, 'OrcaBusStatelessHelloWorldStack', {
+  new StatelessStack(app, 'OrcaBusStatelessSashRegressionStack', {
     env: TOOLCHAIN_ENVIRONMENT,
   });
 } else if (deployMode === 'stateful') {
@@ -36,6 +36,11 @@ if (deployMode === 'stateless') {
   new SashRegressionStack(app, 'SashRegressionStack', {
     ...getStackProps('PROD'),
     env: { account: PROD_ACCOUNT_ID, region: REGION },
+  });
+} else if (deployMode === 'stage') {
+  new SashRegressionStack(app, 'SashRegressionStack', {
+    ...getStackProps('BETA'),
+    env: { account: '843407916570', region: 'ap-southeast-2' },
   });
 } else {
   throw new Error("Invalid 'deployMode' set in the context");

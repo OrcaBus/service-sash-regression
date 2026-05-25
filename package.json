@@ -8,6 +8,7 @@
     "cdk": "cdk",
     "cdk-stateless": "cdk -c deployMode=stateless",
     "cdk-stateful": "cdk -c deployMode=stateful",
+    "cdk-stage": "cdk -c deployMode=stage",
     "prepare": "pre-commit install",
     "prettier": "prettier --check .",
     "prettier-fix": "prettier --write .",
