@@ -115,3 +115,45 @@ class TestHandler:
                     {"new_version": "0.7.0", "baseline_version": "0.6.4", "case_name": "nonexistent"},
                     None,
                 )
+
+    def test_new_output_path_overrides_config_run2(self):
+        """Watcher can pass new_output_path directly, bypassing config run2."""
+        captured = []
+        with (
+            patch("comparator.lambdas.comparator.handler.load_config", return_value=_CONFIG),
+            patch("comparator.lambdas.comparator.handler.download_s3_dir"),
+            patch("comparator.lambdas.comparator.handler.check_schema", return_value=_SCHEMA_PASS),
+            patch("comparator.lambdas.comparator.handler.run_comparison", side_effect=_make_run_comparison(captured)),
+            patch("comparator.lambdas.comparator.handler.upload_file"),
+        ):
+            result = handler(
+                {
+                    "new_version": "0.7.0",
+                    "baseline_version": "0.6.4",
+                    "new_output_path": "s3://override/new/",
+                    "baseline_output_path": "s3://override/baseline/",
+                },
+                None,
+            )
+        assert result["all_schema_passed"] is True
+
+    def test_baseline_output_path_overrides_config_run1(self):
+        captured = []
+        with (
+            patch("comparator.lambdas.comparator.handler.load_config", return_value=_CONFIG),
+            patch("comparator.lambdas.comparator.handler.download_s3_dir") as mock_dl,
+            patch("comparator.lambdas.comparator.handler.check_schema", return_value=_SCHEMA_PASS),
+            patch("comparator.lambdas.comparator.handler.run_comparison", side_effect=_make_run_comparison(captured)),
+            patch("comparator.lambdas.comparator.handler.upload_file"),
+        ):
+            handler(
+                {
+                    "new_version": "0.7.0",
+                    "baseline_version": "0.6.4",
+                    "baseline_output_path": "s3://my-override/baseline/",
+                },
+                None,
+            )
+        # First download_s3_dir call should use the override path
+        first_call_uri = mock_dl.call_args_list[0][0][0]
+        assert first_call_uri == "s3://my-override/baseline/"

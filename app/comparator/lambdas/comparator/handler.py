@@ -44,6 +44,8 @@ def handler(event: dict, context) -> dict:
     new_version = event["new_version"]
     baseline_version = event["baseline_version"]
     case_name = event.get("case_name")
+    new_output_path = event.get("new_output_path")
+    baseline_output_path = event.get("baseline_output_path")
 
     logger.info(f"Comparing sash {new_version} vs {baseline_version}")
 
@@ -54,6 +56,14 @@ def handler(event: dict, context) -> dict:
         pairs = [p for p in pairs if p["metadata"].get("case") == case_name]
         if not pairs:
             raise ValueError(f"No case '{case_name}' in testdata config")
+
+    # Allow Watcher Lambda to pass live run paths directly, bypassing testdata config
+    if new_output_path:
+        for p in pairs:
+            p["run2"] = new_output_path
+    if baseline_output_path:
+        for p in pairs:
+            p["run1"] = baseline_output_path
 
     results = []
     with tempfile.TemporaryDirectory() as tmp:
@@ -103,6 +113,7 @@ def handler(event: dict, context) -> dict:
             results.append({
                 "subject": subject,
                 "schema": schema_result,
+                "comparison": comparison_result,
                 "s3_results": s3_out_prefix,
             })
 
