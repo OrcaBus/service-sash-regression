@@ -3034,7 +3034,14 @@ class ComparisonReporter:
                     metrics['multiqc'][run_key] = multiqc['report_general_stats_data']
 
         # File comparison summary (counts of identical, different, missing)
-        file_status = {'identical': 0, 'different': 0, 'missing_run1': 0, 'missing_run2': 0, 'missing_both': 0}
+        file_status = {
+            'identical': 0,
+            'different': 0,
+            'different_keys': [],
+            'missing_run1': 0,
+            'missing_run2': 0,
+            'missing_both': 0,
+        }
 
         # Count file statuses from key comparisons
         for key in ['purple_purity', 'purple_qc', 'purple_somatic_vcf', 'purple_sv_vcf',
@@ -3053,6 +3060,7 @@ class ComparisonReporter:
                     file_status['identical'] += 1
                 else:
                     file_status['different'] += 1
+                    file_status['different_keys'].append(key)
 
         metrics['file_comparison'] = file_status
 
@@ -3265,6 +3273,115 @@ def _analyze_run(run_path: str, tumor_id: str, normal_id: str, alias: str) -> tu
     return analyzer, analysis
 
 
+def _safe_float(value: Any) -> Optional[float]:
+    """Convert numeric-like value to float when possible."""
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _extract_numeric_by_token(payload: Any, token: str) -> Optional[float]:
+    """Recursively find first numeric value where a key contains the token."""
+    if isinstance(payload, dict):
+        for key, value in payload.items():
+            if token in str(key).lower():
+                numeric = _safe_float(value)
+                if numeric is not None:
+                    return numeric
+            found = _extract_numeric_by_token(value, token)
+            if found is not None:
+                return found
+    elif isinstance(payload, list):
+        for item in payload:
+            found = _extract_numeric_by_token(item, token)
+            if found is not None:
+                return found
+    return None
+
+
+def _build_compact_summary(
+    pair_name: str,
+    tumor_id: str,
+    normal_id: str,
+    metadata: dict,
+    comparison_metrics: dict
+) -> dict:
+    """Build compact summary artifact intended for Lambda final status logging."""
+    file_comparison = comparison_metrics.get('file_comparison', {})
+    critical_items = []
+    warning_items = []
+
+    missing_total = (
+        int(file_comparison.get('missing_run1', 0))
+        + int(file_comparison.get('missing_run2', 0))
+        + int(file_comparison.get('missing_both', 0))
+    )
+    if missing_total > 0:
+        critical_items.append(f"missing_key_files:{missing_total}")
+
+    different_keys = file_comparison.get('different_keys', [])
+    if not different_keys:
+        # Fall back to count for backward compat with old metrics.json
+        changed_count = int(file_comparison.get('different', 0))
+        if changed_count > 0:
+            warning_items.append(f"changed_key_files:{changed_count}")
+    elif different_keys:
+        warning_items.append(f"changed_key_files:{','.join(different_keys)}")
+
+    run1_purple = (comparison_metrics.get('purple', {}).get('run1') or {})
+    run2_purple = (comparison_metrics.get('purple', {}).get('run2') or {})
+    for metric_name in ('purity', 'ploidy'):
+        v1 = _safe_float(run1_purple.get(metric_name))
+        v2 = _safe_float(run2_purple.get(metric_name))
+        if v1 is None or v2 is None or v1 == v2:
+            continue
+        delta = abs(v2 - v1)
+        if delta >= 0.05:
+            critical_items.append(f"{metric_name}_delta:{delta:.4f}")
+        else:
+            warning_items.append(f"{metric_name}_delta:{delta:.4f}")
+
+    run1_multiqc = comparison_metrics.get('multiqc', {}).get('run1')
+    run2_multiqc = comparison_metrics.get('multiqc', {}).get('run2')
+    for token in ('tmb', 'msi'):
+        m1 = _extract_numeric_by_token(run1_multiqc, token)
+        m2 = _extract_numeric_by_token(run2_multiqc, token)
+        if m1 is None or m2 is None or m1 == m2:
+            continue
+        delta = abs(m2 - m1)
+        if delta >= 0.05:
+            critical_items.append(f"{token}_delta:{delta:.4f}")
+        else:
+            warning_items.append(f"{token}_delta:{delta:.4f}")
+
+    if critical_items:
+        status = 'FAIL'
+        detected_severity = 'major'
+    elif warning_items:
+        status = 'WARN'
+        detected_severity = 'minor'
+    else:
+        status = 'PASS'
+        detected_severity = 'none'
+
+    return {
+        'pair': pair_name,
+        'tumor_id': tumor_id,
+        'normal_id': normal_id,
+        'metadata': metadata or {},
+        'status': status,
+        'detected_severity': detected_severity,
+        'critical_count': len(critical_items),
+        'critical_items': critical_items,
+        'warning_count': len(warning_items),
+        'warning_items': warning_items,
+        'metrics_impacted': bool(critical_items),
+    }
+
+
 def _write_comparison_output(
     pair_output: Path,
     pair_name: str,
@@ -3289,6 +3406,7 @@ def _write_comparison_output(
     print(f"  Report: {report_file}")
 
     # Build and write JSON metrics
+    comparison_metrics = reporter.extract_comparison_metrics()
     metrics = {
         'pair': pair_name,
         'tumor_id': tumor_id,
@@ -3306,13 +3424,19 @@ def _write_comparison_output(
             'base_dir': str(analyzer2.base_dir),
             'analysis': analysis2
         },
-        'comparison': reporter.extract_comparison_metrics()
+        'comparison': comparison_metrics
     }
 
     json_file = pair_output / 'metrics.json'
     with open(json_file, 'w') as f:
         json.dump(clean_for_json(metrics), f, indent=2)
     print(f"  JSON metrics: {json_file}")
+
+    summary = _build_compact_summary(pair_name, tumor_id, normal_id, metadata or {}, comparison_metrics)
+    summary_file = pair_output / 'summary.json'
+    with open(summary_file, 'w') as f:
+        json.dump(clean_for_json(summary), f, indent=2)
+    print(f"  Compact summary: {summary_file}")
 
 
 def run_single_pair(args):

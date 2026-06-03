@@ -26,8 +26,10 @@ def run_comparison(run1: Path, run2: Path, tumor: str, normal: str, output_dir: 
     logger.info(f"Running comparison: {' '.join(cmd)}")
     result = subprocess.run(cmd, capture_output=True, text=True)
 
-    summary_path = output_dir / "metrics.json"
-    if result.returncode != 0 and not summary_path.exists():
+    summary_path = output_dir / "summary.json"
+    metrics_path = output_dir / "metrics.json"
+
+    if result.returncode != 0 and not summary_path.exists() and not metrics_path.exists():
         logger.error(f"Comparison failed:\n{result.stderr}")
         raise RuntimeError(f"comprehensive_sash_comparison.py failed: {result.stderr[-500:]}")
     if result.returncode != 0:
@@ -35,4 +37,6 @@ def run_comparison(run1: Path, run2: Path, tumor: str, normal: str, output_dir: 
 
     if summary_path.exists():
         return json.loads(summary_path.read_text())
+    if metrics_path.exists():
+        return json.loads(metrics_path.read_text())
     return {"status": "completed", "output_dir": str(output_dir)}
