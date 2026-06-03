@@ -12,5 +12,6 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY comparator/ ${LAMBDA_TASK_ROOT}/comparator/
+COPY submitter/ ${LAMBDA_TASK_ROOT}/submitter/
 
 CMD ["comparator.lambdas.comparator.handler.handler"]

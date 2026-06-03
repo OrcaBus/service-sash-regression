@@ -1,17 +1,17 @@
-.PHONY: install test check fix invoke-local
+.PHONY: install test check fix invoke-local invoke-local-submitter
 
 install:
 	pip install -r requirements-dev.txt
 
 test:
-	pytest tests/ --cov=comparator --cov-report=term-missing
+	pytest tests/ --cov=comparator --cov=submitter --cov-report=term-missing
 
 check:
-	ruff check comparator tests
+	ruff check comparator submitter tests
 
 fix:
-	ruff check --fix comparator tests
-	ruff format comparator tests
+	ruff check --fix comparator submitter tests
+	ruff format comparator submitter tests
 
 # Run comparator end-to-end against real S3 data.
 # Requires: AWS_PROFILE=umccr-dev-pu
