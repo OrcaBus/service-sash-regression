@@ -46,9 +46,10 @@ def _derive_pair_compact_status(pair_result: dict) -> dict:
     if not schema.get("passed"):
         return {
             "status": "FAIL",
-            "detected_severity": "major",
             "critical_count": 1,
             "critical_items": ["schema_check_failed"],
+            "warning_count": 0,
+            "warning_items": [],
             "metrics_impacted": True,
         }
 
@@ -56,24 +57,23 @@ def _derive_pair_compact_status(pair_result: dict) -> dict:
     if not comparison:
         return {
             "status": "FAIL",
-            "detected_severity": "major",
             "critical_count": 1,
             "critical_items": ["comparison_missing"],
+            "warning_count": 0,
+            "warning_items": [],
             "metrics_impacted": True,
         }
 
     # Preferred shape from summary.json
     if isinstance(comparison, dict) and "critical_items" in comparison and "status" in comparison:
-        compact_status = {
-            "status": comparison.get("status", "MANUAL_CHECK"),
-            "detected_severity": comparison.get("detected_severity", "unknown"),
+        return {
+            "status": comparison.get("status", "FAIL"),
             "critical_count": int(comparison.get("critical_count", 0)),
             "critical_items": comparison.get("critical_items", []),
             "warning_count": int(comparison.get("warning_count", 0)),
             "warning_items": comparison.get("warning_items", []),
             "metrics_impacted": bool(comparison.get("metrics_impacted", False)),
         }
-        return compact_status
 
     # Fallback for legacy metrics.json shape
     file_comparison = ((comparison.get("comparison") or {}).get("file_comparison") or {})
@@ -86,24 +86,27 @@ def _derive_pair_compact_status(pair_result: dict) -> dict:
     if missing_total > 0:
         return {
             "status": "FAIL",
-            "detected_severity": "major",
             "critical_count": 1,
             "critical_items": [f"missing_key_files:{missing_total}"],
+            "warning_count": 0,
+            "warning_items": [],
             "metrics_impacted": True,
         }
     if different > 0:
         return {
-            "status": "MANUAL_CHECK",
-            "detected_severity": "minor",
-            "critical_count": 0,
-            "critical_items": [],
-            "metrics_impacted": False,
+            "status": "FAIL",
+            "critical_count": 1,
+            "critical_items": [f"changed_key_files:{different}"],
+            "warning_count": 0,
+            "warning_items": [],
+            "metrics_impacted": True,
         }
     return {
         "status": "PASS",
-        "detected_severity": "none",
         "critical_count": 0,
         "critical_items": [],
+        "warning_count": 0,
+        "warning_items": [],
         "metrics_impacted": False,
     }
 
@@ -171,16 +174,8 @@ def _build_compact_summary(results: list, declared_update_type: str) -> dict:
     fail_count = sum(1 for result in pair_compact if result["status"] == "FAIL")
     manual_check_count = sum(1 for result in pair_compact if result["status"] == "MANUAL_CHECK")
 
-    detected_severity = "none"
-    if any(result["detected_severity"] == "major" for result in pair_compact):
-        detected_severity = "major"
-    elif any(result["detected_severity"] == "minor" for result in pair_compact):
-        detected_severity = "minor"
-
     if fail_count > 0:
         status = "FAIL"
-    elif declared_update_type == "minor" and detected_severity == "major":
-        status = "MANUAL_CHECK"
     elif manual_check_count > 0:
         status = "MANUAL_CHECK"
     elif warn_count > 0:
@@ -199,7 +194,6 @@ def _build_compact_summary(results: list, declared_update_type: str) -> dict:
     return {
         "status": status,
         "declared_update_type": declared_update_type or None,
-        "detected_severity": detected_severity,
         "total_pairs": len(pair_compact),
         "pass_count": pass_count,
         "warn_count": warn_count,

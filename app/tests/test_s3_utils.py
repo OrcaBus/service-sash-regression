@@ -1,7 +1,5 @@
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import pytest
 
 from comparator.s3_utils import download_s3_dir, parse_s3_uri, upload_file
 

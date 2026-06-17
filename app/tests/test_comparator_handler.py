@@ -5,8 +5,7 @@ All AWS calls and inner comparator functions are mocked so no credentials or
 network access are required.
 """
 import os
-from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -49,7 +48,6 @@ class TestHandler:
     def test_emits_compact_summary_and_final_log_line(self):
         cmp_summary = {
             "status": "PASS",
-            "detected_severity": "none",
             "critical_count": 0,
             "critical_items": [],
             "warning_count": 0,
@@ -72,19 +70,17 @@ class TestHandler:
             captured = [c.args[0] for c in mock_info.call_args_list if c.args]
 
         assert result["compact_summary"]["status"] == "PASS"
-        assert result["compact_summary"]["detected_severity"] == "none"
         assert result["compact_summary"]["pass_count"] == 1
         assert result["compact_summary"]["warn_count"] == 0
         assert any("FINAL_RESULT" in msg for msg in captured)
 
-    def test_warn_status_when_warnings_present(self):
+    def test_warn_status_when_metric_delta_below_threshold(self):
         cmp_summary = {
             "status": "WARN",
-            "detected_severity": "minor",
             "critical_count": 0,
             "critical_items": [],
             "warning_count": 1,
-            "warning_items": ["changed_key_files:purple_purity,somatic_bcftools"],
+            "warning_items": ["purity_delta:0.0200"],
             "metrics_impacted": False,
         }
         with (
@@ -100,7 +96,30 @@ class TestHandler:
         assert cs["status"] == "WARN"
         assert cs["warn_count"] == 1
         assert cs["pass_count"] == 0
-        assert cs["warning_items"] == ["changed_key_files:purple_purity,somatic_bcftools"]
+        assert cs["warning_items"] == ["purity_delta:0.0200"]
+
+    def test_fail_status_when_key_files_changed(self):
+        cmp_summary = {
+            "status": "FAIL",
+            "critical_count": 1,
+            "critical_items": ["changed_key_files:purple_purity,somatic_bcftools"],
+            "warning_count": 0,
+            "warning_items": [],
+            "metrics_impacted": True,
+        }
+        with (
+            patch("comparator.lambdas.comparator.handler.load_config", return_value=_CONFIG),
+            patch("comparator.lambdas.comparator.handler.download_s3_dir"),
+            patch("comparator.lambdas.comparator.handler.check_schema", return_value=_SCHEMA_PASS),
+            patch("comparator.lambdas.comparator.handler.run_comparison", return_value=cmp_summary),
+            patch("comparator.lambdas.comparator.handler.upload_file"),
+        ):
+            result = handler({"new_version": "0.7.0", "baseline_version": "0.6.4"}, None)
+
+        cs = result["compact_summary"]
+        assert cs["status"] == "FAIL"
+        assert cs["fail_count"] == 1
+        assert "changed_key_files:purple_purity,somatic_bcftools" in cs["critical_items"]
 
     def test_returns_summary_for_successful_pair(self):
         captured = []

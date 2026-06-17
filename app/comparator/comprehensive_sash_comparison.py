@@ -46,13 +46,13 @@ from run_logging import setup_run_logging
 
 # Try to import VCF libraries
 try:
-    import pysam
+    import pysam  # noqa: F401
     HAS_PYSAM = True
 except ImportError:
     HAS_PYSAM = False
 
 try:
-    from cyvcf2 import VCF
+    from cyvcf2 import VCF  # noqa: F401
     HAS_CYVCF2 = True
 except ImportError:
     HAS_CYVCF2 = False
@@ -1759,7 +1759,7 @@ class SashRunAnalyzer:
 
         # PCGR/CPSR VCF files for overlap analysis - CONTENT COMPARISON
         pcgr_pass_vcf = os.path.join(pcgr_dir, f'{self.tumor}.pcgr_acmg.grch38.pass.vcf.gz')
-        cpsr_pass_vcf = os.path.join(cpsr_dir, f'{self.normal}.cpsr.grch38.pass.vcf.gz')
+        _cpsr_pass_vcf = os.path.join(cpsr_dir, f'{self.normal}.cpsr.grch38.pass.vcf.gz')
 
         # Detailed PCGR PASS records for deep-dive
         analysis['pcgr_pass_records'] = self.parse_pcgr_pass_records(pcgr_pass_vcf)
@@ -2362,7 +2362,11 @@ class ComparisonReporter:
             lines.append(f"\n{title}")
             lines.append("-" * len(title))
             from collections import Counter
-            by_type = Counter(); by_gene = Counter(); by_cons = Counter(); by_impact = Counter(); chrom = Counter()
+            by_type = Counter()
+            by_gene = Counter()
+            by_cons = Counter()
+            by_impact = Counter()
+            chrom = Counter()
             afs = []
             for k in keys:
                 r = recs.get(k)
@@ -2402,10 +2406,13 @@ class ComparisonReporter:
         snv_idx2 = index_snvs(recs2)
 
         def is_mnp_split_in_other(mnp_rec, other_snv_idx):
-            ref = mnp_rec['REF']; alt = mnp_rec['ALT']; L = len(ref)
+            ref = mnp_rec['REF']
+            alt = mnp_rec['ALT']
+            L = len(ref)
             if len(ref) != len(alt) or L <= 1:
                 return False
-            chrom = mnp_rec['CHROM']; pos = mnp_rec['POS']
+            chrom = mnp_rec['CHROM']
+            pos = mnp_rec['POS']
             # check consecutive SNVs spanning the MNP region
             for i in range(L):
                 p = pos + i
@@ -2416,7 +2423,7 @@ class ComparisonReporter:
 
         mnp_as_snvs_in_run2 = sum(1 for k in only1 if recs1.get(k, {}).get('var_type') == 'MNP' and is_mnp_split_in_other(recs1[k], snv_idx2))
         mnp_as_snvs_in_run1 = sum(1 for k in only2 if recs2.get(k, {}).get('var_type') == 'MNP' and is_mnp_split_in_other(recs2[k], snv_idx1))
-        lines.append(f"\nMNP split heuristic:")
+        lines.append("\nMNP split heuristic:")
         lines.append(f"  Run 1-only MNPs that appear as SNV clusters in Run 2: {mnp_as_snvs_in_run2}")
         lines.append(f"  Run 2-only MNPs that appear as SNV clusters in Run 1: {mnp_as_snvs_in_run1}")
 
@@ -2618,7 +2625,8 @@ class ComparisonReporter:
                 )
             elif key == 'by_quality':
                 order = ['high', 'medium', 'low', 'very_low']
-                sort_fn = lambda item: order.index(item) if item in order else len(order)
+                def sort_fn(item):
+                    return order.index(item) if item in order else len(order)
                 lines.extend(
                     self._format_counter_table(counter_titles[key], counter1, counter2,
                                                sort_key=sort_fn, indent=4)
@@ -2854,8 +2862,10 @@ class ComparisonReporter:
 
             Returns empty list if not all positions are represented as SNVs.
             """
-            chrom = mnp_rec['CHROM']; pos = mnp_rec['POS']
-            ref = mnp_rec['REF']; alt = mnp_rec['ALT']
+            chrom = mnp_rec['CHROM']
+            pos = mnp_rec['POS']
+            ref = mnp_rec['REF']
+            alt = mnp_rec['ALT']
             L = len(ref)
             if len(ref) != len(alt) or L <= 1:
                 return []
@@ -2869,13 +2879,16 @@ class ComparisonReporter:
             return matches
 
         def mnp_covering_snv(snv_rec, other_recs):
-            chrom = snv_rec['CHROM']; pos = snv_rec['POS']
-            ref = snv_rec['REF']; alt = snv_rec['ALT']
+            chrom = snv_rec['CHROM']
+            pos = snv_rec['POS']
+            ref = snv_rec['REF']
+            alt = snv_rec['ALT']
             # scan MNPs in other_recs to find one covering this base
             for r in other_recs.values():
                 if r.get('var_type') != 'MNP' or r.get('CHROM') != chrom:
                     continue
-                start = r['POS']; L = len(r['REF'])
+                start = r['POS']
+                L = len(r['REF'])
                 if len(r['REF']) != len(r['ALT']) or L <= 1:
                     continue
                 if start <= pos <= start + L - 1:
@@ -3322,14 +3335,13 @@ def _build_compact_summary(
     if missing_total > 0:
         critical_items.append(f"missing_key_files:{missing_total}")
 
+    # Changed clinical output files are critical — requires human sign-off regardless of update type
     different_keys = file_comparison.get('different_keys', [])
-    if not different_keys:
-        # Fall back to count for backward compat with old metrics.json
-        changed_count = int(file_comparison.get('different', 0))
-        if changed_count > 0:
-            warning_items.append(f"changed_key_files:{changed_count}")
-    elif different_keys:
-        warning_items.append(f"changed_key_files:{','.join(different_keys)}")
+    if different_keys:
+        critical_items.append(f"changed_key_files:{','.join(different_keys)}")
+    elif int(file_comparison.get('different', 0)) > 0:
+        # Backward compat: old metrics.json without different_keys
+        critical_items.append(f"changed_key_files:{file_comparison['different']}")
 
     run1_purple = (comparison_metrics.get('purple', {}).get('run1') or {})
     run2_purple = (comparison_metrics.get('purple', {}).get('run2') or {})
@@ -3359,13 +3371,10 @@ def _build_compact_summary(
 
     if critical_items:
         status = 'FAIL'
-        detected_severity = 'major'
     elif warning_items:
         status = 'WARN'
-        detected_severity = 'minor'
     else:
         status = 'PASS'
-        detected_severity = 'none'
 
     return {
         'pair': pair_name,
@@ -3373,7 +3382,11 @@ def _build_compact_summary(
         'normal_id': normal_id,
         'metadata': metadata or {},
         'status': status,
-        'detected_severity': detected_severity,
+        'file_comparison': {
+            'identical': int(file_comparison.get('identical', 0)),
+            'different': int(file_comparison.get('different', 0)),
+            'missing': missing_total,
+        },
         'critical_count': len(critical_items),
         'critical_items': critical_items,
         'warning_count': len(warning_items),
@@ -3396,7 +3409,7 @@ def _write_comparison_output(
     metadata: dict = None
 ):
     """Generate comparison and write report + JSON output."""
-    print(f"  Generating comparison...")
+    print("  Generating comparison...")
     reporter = ComparisonReporter(analysis1, analysis2, alias1, alias2)
 
     # Write text report
@@ -3491,7 +3504,7 @@ def run_batch_mode_simple_format(args, config, output_dir, pairs_dir):
     pairs = config['pairs']
 
     print(f"\n{'='*80}")
-    print(f"BATCH COMPARISON MODE (Simple Format)")
+    print("BATCH COMPARISON MODE (Simple Format)")
     print(f"{'='*80}")
     print(f"Pairs to process: {len(pairs)}")
     print(f"{'='*80}\n")
@@ -3560,7 +3573,7 @@ def run_batch_mode_simple_format(args, config, output_dir, pairs_dir):
             continue
 
     print(f"\n{'='*80}")
-    print(f"Batch processing complete!")
+    print("Batch processing complete!")
     print(f"Output directory: {output_dir}")
     print(f"Pair metrics: {pairs_dir}")
     print(f"{'='*80}\n")
@@ -3603,7 +3616,7 @@ def run_batch_mode_new_format(args, config, output_dir, pairs_dir):
         return run_dict.get('label') or run_dict.get('id')
 
     print(f"\n{'='*80}")
-    print(f"BATCH COMPARISON MODE")
+    print("BATCH COMPARISON MODE")
     print(f"{'='*80}")
     print(f"Baseline: {_pick_alias(baseline_run)} ({baseline_run.get('path')})")
     print(f"Comparing against: {', '.join(_pick_alias(r) for r in comparison_runs)}")
@@ -3655,7 +3668,7 @@ def run_batch_mode_new_format(args, config, output_dir, pairs_dir):
                 continue
 
     print(f"\n{'='*80}")
-    print(f"Batch processing complete!")
+    print("Batch processing complete!")
     print(f"Output directory: {output_dir}")
     print(f"Pair metrics: {pairs_dir}")
     print(f"{'='*80}\n")
