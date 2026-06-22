@@ -26,11 +26,16 @@ export class SashRegressionStack extends Stack {
       ManagedPolicy.fromAwsManagedPolicyName('service-role/AWSLambdaBasicExecutionRole')
     );
 
-    // Read sash outputs from pipeline cache buckets
+    // Read sash outputs from pipeline cache buckets and project-data buckets (e.g. project-wgs-accreditation)
     this.lambdaRole.addToPolicy(
       new PolicyStatement({
         actions: ['s3:GetObject', 's3:ListBucket'],
-        resources: ['arn:aws:s3:::pipeline-*-cache-*', 'arn:aws:s3:::pipeline-*-cache-*/*'],
+        resources: [
+          'arn:aws:s3:::pipeline-*-cache-*',
+          'arn:aws:s3:::pipeline-*-cache-*/*',
+          'arn:aws:s3:::project-data-*',
+          'arn:aws:s3:::project-data-*/*',
+        ],
       })
     );
 
