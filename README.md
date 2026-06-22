@@ -1,15 +1,8 @@
-Hello World Service
+Sash Regression Service
 ================================================================================
 
-- [Hello World Service](#hello-world-service)
+- [Sash Regression Service](#sash-regression-service)
   - [New Here? Start Here](#new-here-start-here)
-  - [Using This Template](#using-this-template)
-    - [1. Rename the service](#1-rename-the-service)
-    - [2. Wire up the stateless pipeline](#2-wire-up-the-stateless-pipeline)
-    - [3. Decide on stateful infrastructure](#3-decide-on-stateful-infrastructure)
-    - [4. Replace the Lambda logic](#4-replace-the-lambda-logic)
-    - [5. Update tests](#5-update-tests)
-    - [6. Update this README](#6-update-this-readme)
   - [Service Description](#service-description)
     - [Name \& responsibility](#name--responsibility)
     - [Description](#description)
@@ -32,7 +25,6 @@ Hello World Service
     - [Setup](#setup)
       - [Requirements](#requirements)
       - [Install Dependencies](#install-dependencies)
-      - [First Steps](#first-steps)
     - [Conventions](#conventions)
     - [Linting \& Formatting](#linting--formatting)
     - [Testing](#testing)
@@ -42,65 +34,9 @@ Hello World Service
 New Here? Start Here
 --------------------------------------------------------------------------------
 
-If you are not familiar with AWS, Lambda, EventBridge, or CDK, read the beginner guide first:
+If you are not familiar with AWS, Lambda, or CDK, read the beginner guide first:
 
 - [`docs/beginner-guide.md`](docs/beginner-guide.md)
-
-That guide explains:
-
-- what this service does in plain language
-- what "stack" means in this repository
-- how Lambda, EventBridge, IAM, and CDK fit together
-- how deployment works across toolchain and environment stacks
-- which files to read first
-
-
-Using This Template
---------------------------------------------------------------------------------
-
-This repository is a working example. To build a real service from it, go through the checklist below.
-
-### 1. Rename the service
-
-| What | Where |
-| ---- | ----- |
-| Module directory name | Rename `app/hello_world/` to your service name |
-| Event source constant | `infrastructure/stage/constants.ts` → `OUTGOING_EVENT_SOURCE` |
-| Incoming event filter | `infrastructure/stage/constants.ts` → `INCOMING_WORKFLOW_NAME` |
-| Incoming event detail type | `infrastructure/stage/constants.ts` → `INCOMING_DETAIL_TYPE` |
-| CDK stack name | `bin/deploy.ts` → `'OrcaBusStatelessHelloWorldStack'` |
-
-### 2. Wire up the stateless pipeline
-
-In `infrastructure/toolchain/stateless-stack.ts`, update:
-
-- `githubRepo` — your new GitHub repository name
-- `stackName` — your CloudFormation stack name
-- `pipelineName` — your CodePipeline name (convention: `OrcaBus-Stateless{ServiceName}`)
-
-### 3. Decide on stateful infrastructure
-
-If your service needs databases, buckets, or queues: fill in the TODOs in `infrastructure/toolchain/stateful-stack.ts` and `bin/deploy.ts`.
-
-If not: delete `infrastructure/toolchain/stateful-stack.ts` and remove the `stateful` branch from `bin/deploy.ts`.
-
-### 4. Replace the Lambda logic
-
-- `app/hello_world/lambdas/handler.py` — replace the hello-world business logic
-- `app/hello_world/models.py` — replace the Pydantic models with your event shapes
-
-### 5. Update tests
-
-- `app/tests/conftest.py` — update the sample event fixture
-- `app/tests/test_handler.py` — rewrite tests for your handler
-- `test/stage.test.ts` — update CDK assertions to match your stack resources
-
-### 6. Update this README
-
-- Service name, description
-- Consumed and published events tables
-- Stateless resources list under [Stateless](#stateless)
-- Remove the [Using This Template](#using-this-template) section
 
 
 Service Description
@@ -108,46 +44,52 @@ Service Description
 
 ### Name & responsibility
 
-**Hello World** — a minimal Lambda service template for the OrcaBus platform.
+**Sash Regression** — compares `sash` pipeline outputs between a new version and a baseline version, to catch regressions before a release.
 
 ### Description
 
-This service demonstrates the canonical pattern for an event-driven Lambda microservice on OrcaBus:
+This service runs a Docker-based Lambda (the **Comparator**) that:
 
-1. An EventBridge rule filters `WorkflowRunStateChange` events from `orcabus.workflowmanager` for the `hello-world` workflow.
-2. The matching events trigger a Python Lambda function.
-3. The Lambda parses the incoming event using Pydantic models, extracts key fields, and emits a `HelloWorldEvent` back onto the `OrcaBusMain` event bus.
+1. Downloads the new and baseline `sash` pipeline output directories from S3 (pipeline cache / project-data buckets) for a given test case.
+2. Runs a schema check and a comprehensive comparison between the two output trees (`app/comparator/schema_check.py`, `app/comparator/comparison.py`, `app/comparator/comprehensive_sash_comparison.py`).
+3. Uploads the comparison results to a results bucket and returns a pass/fail summary.
 
-Use this repository as a starting point when building a new auxiliary service that reacts to OrcaBus events.
+The set of test cases and their S3 locations is driven by a YAML config file (`testdata/config/sash-regression/testdata-cases.yaml`) read from the testdata bucket.
 
 ### API Endpoints
 
-This service does not expose any API endpoints. It is purely event-driven.
+This service does not expose any API endpoints. The Lambda is invoked directly (manually, or by an external orchestrator) with a payload such as:
+
+```json
+{ "new_version": "0.7.0", "baseline_version": "0.6.4" }
+```
 
 ### Consumed Events
 
-| Name / DetailType            | Source                    | Schema Link | Description                                                                                   |
-|------------------------------|---------------------------|-------------|-----------------------------------------------------------------------------------------------|
-| `WorkflowRunStateChange`     | `orcabus.workflowmanager` |             | Fired on every state transition of a workflow run. Filtered to `workflow.name = hello-world`. |
+This service does not consume any EventBridge events.
 
 ### Published Events
 
-| Name / DetailType   | Source                | Schema Link | Description                                         |
-|---------------------|-----------------------|-------------|-----------------------------------------------------|
-| `HelloWorldEvent`   | `orcabus.helloworld`  |             | Emitted after successfully processing a WRSC event. |
+This service does not publish any EventBridge events.
 
 ### (Internal) Data states & persistence model
 
-This service is stateless. No data is persisted.
+This service is stateless. It reads pipeline outputs and baseline config from S3 and writes comparison results back to S3 — no database is used.
+
+| Bucket | Purpose | Access |
+|--------|---------|--------|
+| `pipeline-*-cache-*`, `project-data-*` | Source `sash` pipeline outputs to compare | Read-only |
+| `test-data-503977275616-ap-southeast-2` (testdata) | Baseline reference config/data | Read-only — never written to by this service |
+| `umccr-research-dev` (results) | Comparison results, all stages | Write |
 
 ### Major Business Rules
 
-- The Lambda only processes events for the `hello-world` workflow (enforced at the EventBridge rule level).
-- A failed `put_events` call (non-zero `FailedEntryCount`) raises a `RuntimeError`, causing the Lambda to fail and triggering the standard retry/DLQ behaviour.
+- The testdata bucket is treated as a read-only, curated baseline. Comparison results always go to `umccr-research-dev`, regardless of which stage (`beta`/`prod`) the Lambda runs in — promoting a result to the testdata baseline is a manual, one-way admin action.
+- A path-traversal guard is enforced when downloading S3 directories (`app/comparator/s3_utils.py`).
 
 ### Permissions & Access Control
 
-No authentication or authorisation controls apply. The service is triggered exclusively via EventBridge rules and does not expose any user-facing interface.
+No end-user authentication or authorisation applies. The Lambda is invoked directly via the AWS API/console and is scoped via IAM to the specific S3 buckets listed above (`infrastructure/stage/deployment-stack.ts`).
 
 ### Change Management
 
@@ -157,7 +99,7 @@ Manual tagging of git commits following Semantic Versioning (semver) guidelines.
 
 #### Release management
 
-The service employs a fully automated CI/CD pipeline that automatically builds and releases all changes to the `main` branch across `beta`, `gamma`, and `prod` environments.
+The service employs a fully automated CI/CD pipeline that automatically builds and releases all changes to the `main` branch across `beta` and `prod` environments.
 
 
 Infrastructure & Deployment
@@ -167,12 +109,11 @@ Infrastructure is managed via CDK. This template provides two types of CDK entry
 
 ### Stateful
 
-This service has no stateful resources. The `StatefulStack` is kept as a placeholder — if a future version of this service requires databases, buckets, or queues, fill in the TODOs in `infrastructure/toolchain/stateful-stack.ts`.
+This service has no stateful resources. The `StatefulStack` is kept as a placeholder.
 
 ### Stateless
 
-- **`HelloWorldFunction`** — Python 3.12 ARM64 Lambda, bundled via `PythonLayerVersion` from `app/requirements.txt`.
-- **`WorkflowRunStateChangeRule`** — EventBridge rule on `OrcaBusMain` that matches `WorkflowRunStateChange` events where `detail.workflow.name = hello-world`.
+- **`ComparatorFunction`** — Docker image Lambda (ARM64, 4096 MB, 10 GiB ephemeral storage, 15 min timeout) built from `./app`. Runs the schema check and comparison logic, reading `TESTDATA_CONFIG_S3_URI` and writing to `RESULT_S3_PREFIX`.
 
 ### CDK Commands
 
@@ -196,40 +137,19 @@ Examples:
 # Deploy the toolchain pipeline stack (sets up CodePipeline in the bastion account)
 pnpm cdk-stateless deploy -e OrcaBusStatelessHelloWorldStack
 
-# Manually deploy the HelloWorld stack to the beta (dev) environment
-pnpm cdk-stateless deploy OrcaBusStatelessHelloWorldStack/DeploymentPipeline/OrcaBusBeta/HelloWorldStack -e
+# Manually deploy the SashRegression stack to the beta (dev) environment
+pnpm cdk-stateless deploy SashRegressionStack -c deployMode=beta
 ```
 
 ### Stacks
 
-This CDK project manages multiple stacks. The root stack (the only one that does not include `DeploymentPipeline` in its stack ID) is deployed in the toolchain account and sets up a CodePipeline for cross-environment deployments to `beta`, `gamma`, and `prod`.
+This CDK project manages multiple stacks. The root stack (the only one that does not include `DeploymentPipeline` in its stack ID) is deployed in the toolchain account and sets up a CodePipeline for cross-environment deployments to `beta` and `prod`.
 
 To list all available stacks, run:
 
 ```sh
 pnpm cdk-stateless ls
 ```
-
-Example output:
-
-```sh
-OrcaBusStatelessHelloWorldStack
-OrcaBusStatelessHelloWorldStack/DeploymentPipeline/OrcaBusBeta/HelloWorldStack  (OrcaBusBeta-HelloWorldStack)
-OrcaBusStatelessHelloWorldStack/DeploymentPipeline/OrcaBusGamma/HelloWorldStack (OrcaBusGamma-HelloWorldStack)
-OrcaBusStatelessHelloWorldStack/DeploymentPipeline/OrcaBusProd/HelloWorldStack  (OrcaBusProd-HelloWorldStack)
-```
-
-
-### Event Archive
-
-All OrcaBus events are recorded in a universal event archive, partitioned by date:
-
-| Environment | S3 Path |
-|-------------|---------|
-| Dev | `s3://orcabus-universal-events-archive-843407916570/events/` |
-| Prod | `s3://orcabus-universal-events-archive-472057503814/events/` |
-
-Use the archive to replay or inspect past events when debugging or onboarding a new service.
 
 
 Development
@@ -241,19 +161,20 @@ The root of the project is an AWS CDK project where the main application logic l
 
 The project is organized into the following key directories:
 
-- **`./app`**: Contains the main application logic. You can open the code editor directly in this folder, and the application should run independently.
+- **`./app`**: Contains the main application logic — the `comparator` Python package and its Lambda handler. You can open the code editor directly in this folder, and the application should run independently.
 
 - **`./bin/deploy.ts`**: Serves as the entry point of the application. It initializes two root stacks: `stateless` and `stateful`. You can remove one of these if your service does not require it.
 
 - **`./infrastructure`**: Contains the infrastructure code for the project:
   - **`./infrastructure/toolchain`**: Includes stacks for the stateless and stateful resources deployed in the toolchain account. These stacks primarily set up the CodePipeline for cross-environment deployments.
   - **`./infrastructure/stage`**: Defines the stage stacks for different environments:
-    - **`./infrastructure/stage/config.ts`**: Contains environment-specific configuration files (e.g., `beta`, `gamma`, `prod`).
-    - **`./infrastructure/stage/deployment-stack.ts`**: The CDK stack entry point for provisioning resources required by the application in `./app`.
+    - **`./infrastructure/stage/config.ts`**: Contains environment-specific configuration files (e.g., `beta`, `prod`).
+    - **`./infrastructure/stage/constants.ts`**: Defines the testdata/results bucket names and S3 config paths.
+    - **`./infrastructure/stage/deployment-stack.ts`**: The CDK stack entry point for provisioning the `ComparatorFunction` and its IAM role.
 
-- **`.github/workflows/pr-tests.yml`**: Configures GitHub Actions to run tests for `make check` (linting and code style), tests defined in `./test`, and `make test` for the `./app` directory. Modify this file as needed to ensure the tests are properly configured for your environment.
+- **`.github/workflows/pr-tests.yml`**: Configures GitHub Actions to run tests for `make check` (linting and code style), tests defined in `./test`, and `make test` for the `./app` directory.
 
-- **`./test`**: Contains tests for CDK code compliance against `cdk-nag`. You should modify these test files to match the resources defined in the `./infrastructure` folder.
+- **`./test`**: Contains tests for CDK code compliance against `cdk-nag`.
 
 ### Setup
 
@@ -277,10 +198,6 @@ To install all required dependencies, run:
 ```sh
 make install
 ```
-
-#### First Steps
-
-Before using this template, search for all instances of `TODO:` comments in the codebase and update them as appropriate for your service. This includes replacing placeholder values (such as stack names, GitHub repo, and pipeline names).
 
 ### Conventions
 
@@ -310,7 +227,7 @@ make fix
 
 ### Testing
 
-Unit tests are available for the Lambda handler and Pydantic models. Test code is hosted alongside business logic in `./app/tests/`.
+Unit tests are available for the Lambda handler and comparison logic. Test code is hosted alongside business logic in `./app/tests/`.
 
 ```sh
 # Python unit tests (no Docker required)
@@ -320,7 +237,14 @@ cd app && make test
 pnpm test
 ```
 
-> **Note:** The CDK tests synthesize the Lambda layer using Docker. If Docker is not running, `pnpm test` will fail with `Cannot connect to the Docker daemon`. Start Docker Desktop before running CDK tests locally.
+You can also run the comparator container directly against real S3 data:
+
+```sh
+make build
+make invoke AWS_PROFILE=<profile> TESTDATA_CONFIG_S3_URI=s3://... RESULT_S3_PREFIX=s3://...
+```
+
+> **Note:** The CDK tests synthesize the Lambda image using Docker. If Docker is not running, `pnpm test` will fail with `Cannot connect to the Docker daemon`. Start Docker Desktop before running CDK tests locally.
 
 
 Glossary & References
@@ -330,8 +254,8 @@ For general terms and expressions used across OrcaBus services, please see the p
 
 Service specific terms:
 
-| Term           | Description                                                                                        |
-|----------------|----------------------------------------------------------------------------------------------------|
-| WRSC           | `WorkflowRunStateChange` — OrcaBus event emitted by the Workflow Manager on every state transition |
-| `portalRunId`  | Unique identifier for a workflow run, used to correlate events across services                     |
-| `OrcaBusMain`  | The shared AWS EventBridge event bus used by all OrcaBus services                                  |
+| Term         | Description                                                                 |
+|--------------|------------------------------------------------------------------------------|
+| `sash`       | The UMCCR somatic/germline cancer reporting pipeline whose outputs are compared |
+| Comparator   | The Lambda in this service that diffs new vs. baseline `sash` outputs       |
+| Testdata bucket | Read-only S3 bucket holding curated baseline reference data and the test-case config YAML |
