@@ -6,8 +6,8 @@
 # Comparison results are written to:
 #   s3://test-data-503977275616-ap-southeast-2/testdata/analysis/production/sash-regression/<new>-vs-<baseline>/<case>/<exec_id>/test/
 
-alias_run1: "sash 0.6.4"
-alias_run2: "sash 0.7.0"
+alias_run1: 'sash 0.6.4'
+alias_run2: 'sash 0.7.0'
 
 pairs:
   - tumor: L2301218

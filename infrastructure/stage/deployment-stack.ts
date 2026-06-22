@@ -30,10 +30,7 @@ export class SashRegressionStack extends Stack {
     this.lambdaRole.addToPolicy(
       new PolicyStatement({
         actions: ['s3:GetObject', 's3:ListBucket'],
-        resources: [
-          'arn:aws:s3:::pipeline-*-cache-*',
-          'arn:aws:s3:::pipeline-*-cache-*/*',
-        ],
+        resources: ['arn:aws:s3:::pipeline-*-cache-*', 'arn:aws:s3:::pipeline-*-cache-*/*'],
       })
     );
 
@@ -41,10 +38,7 @@ export class SashRegressionStack extends Stack {
     this.lambdaRole.addToPolicy(
       new PolicyStatement({
         actions: ['s3:GetObject', 's3:ListBucket'],
-        resources: [
-          `arn:aws:s3:::${TESTDATA_BUCKET}`,
-          `arn:aws:s3:::${TESTDATA_BUCKET}/*`,
-        ],
+        resources: [`arn:aws:s3:::${TESTDATA_BUCKET}`, `arn:aws:s3:::${TESTDATA_BUCKET}/*`],
       })
     );
 
@@ -52,10 +46,7 @@ export class SashRegressionStack extends Stack {
     this.lambdaRole.addToPolicy(
       new PolicyStatement({
         actions: ['s3:PutObject', 's3:ListBucket'],
-        resources: [
-          `arn:aws:s3:::${RESULTS_BUCKET}`,
-          `arn:aws:s3:::${RESULTS_BUCKET}/*`,
-        ],
+        resources: [`arn:aws:s3:::${RESULTS_BUCKET}`, `arn:aws:s3:::${RESULTS_BUCKET}/*`],
       })
     );
 
