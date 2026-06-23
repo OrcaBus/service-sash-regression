@@ -10,7 +10,12 @@ cdk.out
 # Python
 *__pycache__*
 .coverage
+*.pyc
+.env
 
 # IDE
 .idea
 .DS_Store
+
+# Local comparison workdir
+work/

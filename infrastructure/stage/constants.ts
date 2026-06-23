@@ -1,16 +1,23 @@
 import * as path from 'path';
-import { EVENT_BUS_NAME } from '@orcabus/platform-cdk-constructs/shared-config/event-bridge';
+import { StageName } from '@orcabus/platform-cdk-constructs/shared-config/accounts';
 
-/** Absolute path to the Python app directory (contains requirements.txt) */
+/** Absolute path to the Python app directory (contains Dockerfile) */
 export const APP_ROOT = path.join(__dirname, '../../app');
 
-/** Shared OrcaBus EventBridge bus name */
-export const EVENT_BUS = EVENT_BUS_NAME; // "OrcaBusMain"
+/**
+ * testdata bucket is READ-ONLY for this service — it provides baseline reference data only.
+ * Comparison results ALWAYS go to umccr-research-dev regardless of stage.
+ * Admin promotes validated results to testdata manually (one-way archive flow).
+ */
+export const TESTDATA_BUCKET = 'test-data-503977275616-ap-southeast-2';
+export const RESULTS_BUCKET = 'umccr-research-dev';
 
-/** Events this service consumes */
-export const INCOMING_EVENT_SOURCE = 'orcabus.workflowmanager';
-export const INCOMING_DETAIL_TYPE = 'WorkflowRunStateChange';
-export const INCOMING_WORKFLOW_NAME = 'hello-world';
+const CONFIG_KEY = 'testdata/config/sash-regression/testdata-cases.yaml';
+const RESULT_KEY_PREFIX = 'sash-regression';
 
-/** Events this service emits */
-export const OUTGOING_EVENT_SOURCE = 'orcabus.helloworld';
+export const getStageConstants = (_stage: StageName) => {
+  return {
+    testdataConfigS3Uri: `s3://${TESTDATA_BUCKET}/${CONFIG_KEY}`,
+    resultS3Prefix: `s3://${RESULTS_BUCKET}/${RESULT_KEY_PREFIX}`,
+  };
+};

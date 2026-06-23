@@ -1,92 +1,75 @@
 import * as path from 'path';
 import { Construct } from 'constructs';
-import { Architecture } from 'aws-cdk-lib/aws-lambda';
-import { EventBus, IEventBus, Rule } from 'aws-cdk-lib/aws-events';
-import { LambdaFunction } from 'aws-cdk-lib/aws-events-targets';
-import { aws_lambda, Duration, Stack, StackProps } from 'aws-cdk-lib';
-import { PythonFunction, PythonLayerVersion } from '@aws-cdk/aws-lambda-python-alpha';
+import { DockerImageCode, DockerImageFunction } from 'aws-cdk-lib/aws-lambda';
+import { aws_lambda, Duration, Size, Stack, StackProps } from 'aws-cdk-lib';
 import { ManagedPolicy, PolicyStatement, Role, ServicePrincipal } from 'aws-cdk-lib/aws-iam';
-import {
-  APP_ROOT,
-  INCOMING_DETAIL_TYPE,
-  INCOMING_EVENT_SOURCE,
-  INCOMING_WORKFLOW_NAME,
-} from './constants';
+import { APP_ROOT, TESTDATA_BUCKET, RESULTS_BUCKET, getStageConstants } from './constants';
+import { StageName } from '@orcabus/platform-cdk-constructs/shared-config/accounts';
 
-export interface HelloWorldStackProps extends StackProps {
-  mainBusName: string;
+export interface SashRegressionStackProps extends StackProps {
   stage: string;
 }
 
-export class HelloWorldStack extends Stack {
-  private readonly lambdaRuntimePythonVersion: aws_lambda.Runtime = aws_lambda.Runtime.PYTHON_3_12;
-  private readonly mainBus: IEventBus;
+export class SashRegressionStack extends Stack {
   private readonly lambdaRole: Role;
-  private readonly baseLayer: PythonLayerVersion;
 
-  constructor(scope: Construct, id: string, props: HelloWorldStackProps) {
+  constructor(scope: Construct, id: string, props: SashRegressionStackProps) {
     super(scope, id, props);
 
-    this.mainBus = EventBus.fromEventBusName(this, 'OrcaBusMain', props.mainBusName);
+    const { testdataConfigS3Uri, resultS3Prefix } = getStageConstants(props.stage as StageName);
 
-    // Shared Lambda execution role
     this.lambdaRole = new Role(this, 'LambdaRole', {
       assumedBy: new ServicePrincipal('lambda.amazonaws.com'),
-      description: 'Lambda execution role for HelloWorld service',
+      description: 'Lambda execution role for SashRegression comparator',
     });
     this.lambdaRole.addManagedPolicy(
       ManagedPolicy.fromAwsManagedPolicyName('service-role/AWSLambdaBasicExecutionRole')
     );
 
-    // Allow the Lambda to emit events onto the bus
+    // Read sash outputs from pipeline cache buckets and project-data buckets (e.g. project-wgs-accreditation)
     this.lambdaRole.addToPolicy(
       new PolicyStatement({
-        actions: ['events:PutEvents'],
-        resources: [this.mainBus.eventBusArn],
+        actions: ['s3:GetObject', 's3:ListBucket'],
+        resources: [
+          'arn:aws:s3:::pipeline-*-cache-*',
+          'arn:aws:s3:::pipeline-*-cache-*/*',
+          'arn:aws:s3:::project-data-*',
+          'arn:aws:s3:::project-data-*/*',
+        ],
       })
     );
 
-    // Layer bundles the Python dependencies from requirements.txt
-    this.baseLayer = new PythonLayerVersion(this, 'BaseLayer', {
-      entry: path.join(APP_ROOT),
-      compatibleRuntimes: [this.lambdaRuntimePythonVersion],
-      compatibleArchitectures: [Architecture.ARM_64],
-      description: 'Hello World service dependencies',
-    });
+    // Read baseline config from testdata bucket (read-only — never write here)
+    this.lambdaRole.addToPolicy(
+      new PolicyStatement({
+        actions: ['s3:GetObject', 's3:ListBucket'],
+        resources: [`arn:aws:s3:::${TESTDATA_BUCKET}`, `arn:aws:s3:::${TESTDATA_BUCKET}/*`],
+      })
+    );
 
-    this.createHelloWorldFunction(props.mainBusName);
+    // Write comparison results to umccr-research-dev (all stages)
+    this.lambdaRole.addToPolicy(
+      new PolicyStatement({
+        actions: ['s3:PutObject', 's3:ListBucket'],
+        resources: [`arn:aws:s3:::${RESULTS_BUCKET}`, `arn:aws:s3:::${RESULTS_BUCKET}/*`],
+      })
+    );
+
+    this.createComparatorFunction(testdataConfigS3Uri, resultS3Prefix);
   }
 
-  private createHelloWorldFunction(mainBusName: string): void {
-    const helloWorldFn = new PythonFunction(this, 'HelloWorldFunction', {
-      entry: path.join(APP_ROOT),
-      runtime: this.lambdaRuntimePythonVersion,
-      architecture: Architecture.ARM_64,
-      index: 'hello_world/lambdas/handler.py',
-      handler: 'lambda_handler',
-      timeout: Duration.seconds(28),
-      memorySize: 512,
-      layers: [this.baseLayer],
+  private createComparatorFunction(testdataConfigS3Uri: string, resultS3Prefix: string): void {
+    new DockerImageFunction(this, 'ComparatorFunction', {
+      code: DockerImageCode.fromImageAsset(path.join(APP_ROOT)),
+      architecture: aws_lambda.Architecture.ARM_64,
+      timeout: Duration.minutes(15),
+      memorySize: 4096,
+      ephemeralStorageSize: Size.gibibytes(10),
       role: this.lambdaRole,
       environment: {
-        EVENT_BUS_NAME: mainBusName,
+        TESTDATA_CONFIG_S3_URI: testdataConfigS3Uri,
+        RESULT_S3_PREFIX: resultS3Prefix,
       },
     });
-
-    // EventBridge rule: route WorkflowRunStateChange events for the hello-world workflow
-    const rule = new Rule(this, 'WorkflowRunStateChangeRule', {
-      eventBus: this.mainBus,
-      eventPattern: {
-        source: [INCOMING_EVENT_SOURCE],
-        detailType: [INCOMING_DETAIL_TYPE],
-        detail: {
-          workflow: {
-            name: [INCOMING_WORKFLOW_NAME],
-          },
-        },
-      },
-    });
-
-    rule.addTarget(new LambdaFunction(helloWorldFn));
   }
 }

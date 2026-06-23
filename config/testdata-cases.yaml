@@ -1,0 +1,22 @@
+# Testdata cases for sash regression comparisons.
+#
+# run1 = baseline version — pipeline-prod-cache for first run; testdata bucket once archived
+# run2 = new version under test — always pipeline-prod-cache (goes to testdata only after validation)
+#
+# Comparison results are written to:
+#   s3://test-data-503977275616-ap-southeast-2/testdata/analysis/production/sash-regression/<new>-vs-<baseline>/<case>/<exec_id>/test/
+
+alias_run1: 'sash 0.6.4'
+alias_run2: 'sash 0.7.0'
+
+pairs:
+  - tumor: L2301218
+    normal: L2301217
+    run1: s3://pipeline-prod-cache-503977275616-ap-southeast-2/byob-icav2/production/analysis/sash/202605212fa0b7ec/L2301218__L2301217/
+    run2: s3://pipeline-prod-cache-503977275616-ap-southeast-2/byob-icav2/production/analysis/sash/2026052194996946/L2301218__L2301217/
+    metadata:
+      subject: SBJ00480
+      case: SEQC-II-medium
+      cohort: SEQC-II
+      run1_portal_run_id: 202605212fa0b7ec
+      run2_portal_run_id: 2026052194996946
