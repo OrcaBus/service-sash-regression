@@ -1055,6 +1055,8 @@ class SashRunAnalyzer:
 
         # Try to find PCGR mutational signatures (msigs) TSV and parse top signatures
         msigs_candidates = [
+            os.path.join(pcgr_dir, f'{self.tumor}.pcgr_acmg.grch38.mutational_signatures.tsv'),
+            os.path.join(pcgr_dir, f'{self.tumor}.pcgr_acmg.grch38.mutational_signatures.tsv.gz'),
             os.path.join(pcgr_dir, f'{self.tumor}.pcgr.grch38.msigs.tsv.gz'),
             os.path.join(pcgr_dir, f'{self.tumor}.pcgr.grch38.msigs.tsv'),
             os.path.join(pcgr_dir, f'{self.tumor}.pcgr.msigs.tsv.gz'),
@@ -1663,6 +1665,8 @@ class SashRunAnalyzer:
 
         # Also try to find PCGR msigs file for mutational signatures and include top signatures
         msigs_candidates = [
+            os.path.join(pcgr_dir, f'{self.tumor}.pcgr_acmg.grch38.mutational_signatures.tsv'),
+            os.path.join(pcgr_dir, f'{self.tumor}.pcgr_acmg.grch38.mutational_signatures.tsv.gz'),
             os.path.join(pcgr_dir, f'{self.tumor}.pcgr.grch38.msigs.tsv.gz'),
             os.path.join(pcgr_dir, f'{self.tumor}.pcgr.grch38.msigs.tsv'),
             os.path.join(pcgr_dir, f'{self.tumor}.pcgr.msigs.tsv.gz'),
