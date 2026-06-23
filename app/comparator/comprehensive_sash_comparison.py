@@ -22,7 +22,7 @@ Usage:
         --tumor L2100780 \
         --normal L2100779 \
         --output comparison_output
-    
+
     # Batch mode with config file
     python comprehensive_sash_comparison.py \
         --config runs-config.yaml \
@@ -110,30 +110,30 @@ def clean_for_json(obj: Any) -> Any:
 
 class SashRunAnalyzer:
     """Analyzer for SASH run results."""
-    
+
     def __init__(self, run_dir: str, tumor: str, normal: str):
         self.run_dir = run_dir
         self.tumor = tumor
         self.normal = normal
         self.base_dir = self._get_base_dir()
-        
+
     def _get_base_dir(self) -> str:
         """Get the base results directory."""
         p = Path(self.run_dir)
-        
+
         # Try multiple patterns based on actual SASH structures:
         # 1. run_dir/{tumor}__{normal}/ (if run_dir is already at double underscore level)
         # 2. run_dir/{tumor}_{normal}/{tumor}__{normal}/ (new 0.7.0: single underscore dir, then double)
         # 3. run_dir/{tumor}_{normal}/{tumor}_{normal}/ (old 0.6.X: single underscore dir, then same)
         # 4. run_dir/{tumor}__{normal}/ (direct double underscore under run_dir)
-        
+
         # If run_dir itself is already the pair directory (double or single underscore)
         if p.name == f"{self.tumor}__{self.normal}":
             return str(p)
 
         if p.name == f"{self.tumor}_{self.normal}":
             return str(p)
-        
+
         # If there's a single-underscore directory under p (common layout), prefer it
         single_dir = p / f"{self.tumor}_{self.normal}"
         if single_dir.exists():
@@ -144,20 +144,20 @@ class SashRunAnalyzer:
 
             # Old 0.6.x: the single_dir itself is the run directory
             return str(single_dir)
-        
+
         # Try direct double underscore under run_dir
         candidate = p / f"{self.tumor}__{self.normal}"
         if candidate.exists():
             return str(candidate)
-        
+
         # Fallback: return the double underscore path even if it doesn't exist yet
         return str(p / f"{self.tumor}__{self.normal}")
-    
+
     def _read_text_file(self, path: str) -> List[str]:
         """Read text file, handling both regular and gzipped files."""
         if not os.path.exists(path):
             return []
-        
+
         try:
             if path.endswith('.gz'):
                 with gzip.open(path, 'rt', encoding='utf-8', errors='ignore') as f:
@@ -168,12 +168,12 @@ class SashRunAnalyzer:
         except Exception as e:
             print(f"Error reading {path}: {e}")
             return []
-    
+
     def _read_json_file(self, path: str) -> Any:
         """Read JSON file, supporting plain text and gzipped inputs."""
         if not os.path.exists(path):
             return {}
-        
+
         try:
             if path.endswith('.gz'):
                 with gzip.open(path, 'rt', encoding='utf-8', errors='ignore') as f:
@@ -198,7 +198,7 @@ class SashRunAnalyzer:
             return json.dumps(value, sort_keys=True)
         except TypeError:
             return str(value)
-    
+
     def _normalise_tier_key(self, key: str) -> str:
         """Normalise tier labels so 'TIER 2' and '2' align."""
         if key is None:
@@ -206,7 +206,7 @@ class SashRunAnalyzer:
         text = str(key).strip()
         if not text:
             return ''
-        
+
         upper = text.upper()
         roman_map = {
             'I': '1', 'II': '2', 'III': '3', 'IV': '4', 'V': '5',
@@ -242,12 +242,12 @@ class SashRunAnalyzer:
             return digit_match.group(1).lstrip('0') or '0'
 
         return text
-    
+
     def _calculate_file_md5(self, path: str) -> Optional[str]:
         """Calculate MD5 checksum of a file."""
         if not os.path.exists(path):
             return None
-        
+
         try:
             hash_md5 = hashlib.md5()
             with open(path, "rb") as f:
@@ -257,19 +257,19 @@ class SashRunAnalyzer:
         except Exception as e:
             print(f"Error calculating MD5 for {path}: {e}")
             return None
-    
+
     def parse_bcftools_stats(self, path: str) -> Dict[str, Any]:
         """Parse bcftools stats file."""
         lines = self._read_text_file(path)
         if not lines:
             return {}
-        
+
         stats = {
             'records': None, 'snps': None, 'mnps': None, 'indels': None,
             'others': None, 'ts': None, 'tv': None, 'ts_tv': None,
             'multiallelic_sites': None, 'multiallelic_snp_sites': None
         }
-        
+
         for line in lines:
             if line.startswith('SN\t0\tnumber of records:'):
                 stats['records'] = int(line.split('\t')[-1])
@@ -291,14 +291,14 @@ class SashRunAnalyzer:
                     stats['ts'] = int(parts[2])
                     stats['tv'] = int(parts[3])
                     stats['ts_tv'] = float(parts[4])
-        
+
         return stats
-    
+
     def count_vcf_variants(self, vcf_path: str) -> Dict[str, Any]:
         """Count variants in VCF file with detailed breakdown using proper VCF libraries."""
         if not os.path.exists(vcf_path):
             return {'total': 0, 'by_type': {}, 'by_filter': {}, 'by_chromosome': {}}
-        
+
         # Try using cyvcf2 first (fastest)
         if HAS_CYVCF2:
             return self._count_vcf_cyvcf2(vcf_path)
@@ -308,33 +308,33 @@ class SashRunAnalyzer:
         # Fallback to manual parsing
         else:
             return self._count_vcf_manual(vcf_path)
-    
+
     def _count_vcf_cyvcf2(self, vcf_path: str) -> Dict[str, Any]:
         """Count variants using cyvcf2 library."""
         try:
             from cyvcf2 import VCF
             vcf = VCF(vcf_path)
-            
+
             total = 0
             by_type = Counter()
             by_filter = Counter()
             by_chromosome = Counter()
             mnv_tagged = 0
-            
+
             for variant in vcf:
                 total += 1
-                
+
                 # Count by chromosome
                 by_chromosome[variant.CHROM] += 1
-                
+
                 # Count by filter
                 filter_val = 'PASS' if variant.FILTER is None else ';'.join(variant.FILTER)
                 by_filter[filter_val] += 1
-                
+
                 # Determine variant type
                 ref = variant.REF
                 alt = variant.ALT[0] if variant.ALT else ""
-                
+
                 if len(ref) == 1 and len(alt) == 1:
                     by_type['SNV'] += 1
                 elif len(ref) > len(alt):
@@ -343,14 +343,14 @@ class SashRunAnalyzer:
                     by_type['Insertion'] += 1
                 else:
                     by_type['Complex'] += 1
-                
+
                 # Check for MNV tags
                 mnvtag = variant.INFO.get('MNVTAG')
                 if mnvtag is not None and mnvtag != '.':
                     mnv_tagged += 1
-            
+
             vcf.close()
-            
+
             return {
                 'total': total,
                 'by_type': dict(by_type),
@@ -361,33 +361,33 @@ class SashRunAnalyzer:
         except Exception as e:
             print(f"Error using cyvcf2 for {vcf_path}: {e}")
             return self._count_vcf_manual(vcf_path)
-    
+
     def _count_vcf_pysam(self, vcf_path: str) -> Dict[str, Any]:
         """Count variants using pysam library."""
         try:
             import pysam
             vcf = pysam.VariantFile(vcf_path)
-            
+
             total = 0
             by_type = Counter()
             by_filter = Counter()
             by_chromosome = Counter()
             mnv_tagged = 0
-            
+
             for variant in vcf:
                 total += 1
-                
+
                 # Count by chromosome
                 by_chromosome[variant.chrom] += 1
-                
+
                 # Count by filter
                 filter_val = 'PASS' if len(variant.filter) == 0 else ';'.join(variant.filter)
                 by_filter[filter_val] += 1
-                
+
                 # Determine variant type
                 ref = variant.ref
                 alt = variant.alts[0] if variant.alts else ""
-                
+
                 if len(ref) == 1 and len(alt) == 1:
                     by_type['SNV'] += 1
                 elif len(ref) > len(alt):
@@ -396,14 +396,14 @@ class SashRunAnalyzer:
                     by_type['Insertion'] += 1
                 else:
                     by_type['Complex'] += 1
-                
+
                 # Check for MNV tags
                 mnvtag = variant.info.get('MNVTAG')
                 if mnvtag is not None and mnvtag != '.':
                     mnv_tagged += 1
-            
+
             vcf.close()
-            
+
             return {
                 'total': total,
                 'by_type': dict(by_type),
@@ -429,40 +429,40 @@ class SashRunAnalyzer:
         counts = df[col].dropna().value_counts().to_dict()
         counts['_classification_column_used'] = col
         return counts
-    
+
     def _count_vcf_manual(self, vcf_path: str) -> Dict[str, Any]:
         """Count variants using manual parsing (fallback method)."""
         lines = self._read_text_file(vcf_path)
         if not lines:
             return {'total': 0, 'by_type': {}, 'by_filter': {}, 'by_chromosome': {}}
-        
+
         total = 0
         by_type = Counter()
         by_filter = Counter()
         by_chromosome = Counter()
         mnv_tagged = 0
-        
+
         for line in lines:
             if line.startswith('#'):
                 continue
-            
+
             parts = line.split('\t')
             if len(parts) < 8:
                 continue
-            
+
             total += 1
             chrom = parts[0]
             ref = parts[3]
             alt = parts[4]
             filter_val = parts[6]
             info = parts[7]
-            
+
             # Count by chromosome
             by_chromosome[chrom] += 1
-            
+
             # Count by filter
             by_filter[filter_val] += 1
-            
+
             # Determine variant type
             if len(ref) == 1 and len(alt) == 1:
                 by_type['SNV'] += 1
@@ -472,11 +472,11 @@ class SashRunAnalyzer:
                 by_type['Insertion'] += 1
             else:
                 by_type['Complex'] += 1
-            
+
             # Check for MNV tags
             if 'MNVTAG=' in info and 'MNVTAG=.' not in info:
                 mnv_tagged += 1
-        
+
         return {
             'total': total,
             'by_type': dict(by_type),
@@ -484,13 +484,13 @@ class SashRunAnalyzer:
             'by_chromosome': dict(by_chromosome),
             'mnv_tagged': mnv_tagged
         }
-    
-    
+
+
     def parse_sv_vcf(self, vcf_path: str) -> Dict[str, Any]:
         """Parse structural variant VCF using proper VCF libraries."""
         if not os.path.exists(vcf_path):
             return {'total': 0, 'by_type': {}, 'by_filter': {}}
-        
+
         # Try using cyvcf2 first
         if HAS_CYVCF2:
             return self._parse_sv_cyvcf2(vcf_path)
@@ -500,24 +500,24 @@ class SashRunAnalyzer:
         # Fallback to manual parsing
         else:
             return self._parse_sv_manual(vcf_path)
-    
+
     def _parse_sv_cyvcf2(self, vcf_path: str) -> Dict[str, Any]:
         """Parse SV VCF using cyvcf2."""
         try:
             from cyvcf2 import VCF
             vcf = VCF(vcf_path)
-            
+
             total = 0
             by_type = Counter()
             by_filter = Counter()
-            
+
             for variant in vcf:
                 total += 1
-                
+
                 # Count by filter
                 filter_val = 'PASS' if variant.FILTER is None else ';'.join(variant.FILTER)
                 by_filter[filter_val] += 1
-                
+
                 # Extract SV type
                 svtype = variant.INFO.get('SVTYPE')
                 if svtype is None:
@@ -525,11 +525,11 @@ class SashRunAnalyzer:
                     alt = variant.ALT[0] if variant.ALT else ""
                     m = re.match(r'<([A-Z]+)>', alt)
                     svtype = m.group(1) if m else 'UNKNOWN'
-                
+
                 by_type[svtype] += 1
-            
+
             vcf.close()
-            
+
             return {
                 'total': total,
                 'by_type': dict(by_type),
@@ -538,24 +538,24 @@ class SashRunAnalyzer:
         except Exception as e:
             print(f"Error using cyvcf2 for SV {vcf_path}: {e}")
             return self._parse_sv_manual(vcf_path)
-    
+
     def _parse_sv_pysam(self, vcf_path: str) -> Dict[str, Any]:
         """Parse SV VCF using pysam."""
         try:
             import pysam
             vcf = pysam.VariantFile(vcf_path)
-            
+
             total = 0
             by_type = Counter()
             by_filter = Counter()
-            
+
             for variant in vcf:
                 total += 1
-                
+
                 # Count by filter
                 filter_val = 'PASS' if len(variant.filter) == 0 else ';'.join(variant.filter)
                 by_filter[filter_val] += 1
-                
+
                 # Extract SV type
                 svtype = variant.info.get('SVTYPE')
                 if svtype is None:
@@ -563,11 +563,11 @@ class SashRunAnalyzer:
                     alt = variant.alts[0] if variant.alts else ""
                     m = re.match(r'<([A-Z]+)>', alt)
                     svtype = m.group(1) if m else 'UNKNOWN'
-                
+
                 by_type[svtype] += 1
-            
+
             vcf.close()
-            
+
             return {
                 'total': total,
                 'by_type': dict(by_type),
@@ -576,52 +576,52 @@ class SashRunAnalyzer:
         except Exception as e:
             print(f"Error using pysam for SV {vcf_path}: {e}")
             return self._parse_sv_manual(vcf_path)
-    
+
     def _parse_sv_manual(self, vcf_path: str) -> Dict[str, Any]:
         """Parse structural variant VCF using manual parsing."""
         lines = self._read_text_file(vcf_path)
         if not lines:
             return {'total': 0, 'by_type': {}, 'by_filter': {}}
-        
+
         total = 0
         by_type = Counter()
         by_filter = Counter()
-        
+
         for line in lines:
             if line.startswith('#'):
                 continue
-            
+
             parts = line.split('\t')
             if len(parts) < 8:
                 continue
-            
+
             total += 1
             alt = parts[4]
             filter_val = parts[6]
             info = parts[7]
-            
+
             by_filter[filter_val] += 1
-            
+
             # Extract SV type
             svtype = None
             for item in info.split(';'):
                 if item.startswith('SVTYPE='):
                     svtype = item.split('=', 1)[1]
                     break
-            
+
             if not svtype:
                 m = re.match(r'<([A-Z]+)>', alt)
                 if m:
                     svtype = m.group(1)
-            
+
             by_type[svtype or 'UNKNOWN'] += 1
-        
+
         return {
             'total': total,
             'by_type': dict(by_type),
             'by_filter': dict(by_filter)
         }
-    
+
     def parse_tier_file(self, tsv_path: str, tier_col: str = 'TIER') -> Dict[str, int]:
         """Parse tier TSV file using pandas."""
         df = read_tsv_file(tsv_path)
@@ -651,7 +651,7 @@ class SashRunAnalyzer:
     def enhanced_vcf_analysis(self) -> Dict[str, Any]:
         """Enhanced VCF analysis with parsing and detailed comparisons."""
         vcf_analysis = {}
-        
+
         # base_dir is already the pair directory from _get_base_dir()
         # Find all VCF files in the base directory
         vcf_files = []
@@ -660,10 +660,10 @@ class SashRunAnalyzer:
                 for file in files:
                     if file.endswith(('.vcf', '.vcf.gz')):
                         vcf_files.append(os.path.join(root, file))
-        
+
         vcf_analysis['total_vcf_files'] = len(vcf_files)
         vcf_analysis['vcf_file_list'] = [os.path.relpath(f, self.base_dir) for f in vcf_files]
-        
+
         # Build key VCF paths - try multiple patterns for each
         def find_vcf(patterns):
             for pattern in patterns:
@@ -671,7 +671,7 @@ class SashRunAnalyzer:
                 if os.path.exists(full_path):
                     return pattern
             return patterns[0]  # Return first as default
-        
+
         key_vcfs = {
             'purple_somatic': find_vcf([
                 f'purple/{self.tumor}.purple.somatic.vcf.gz',
@@ -700,7 +700,7 @@ class SashRunAnalyzer:
                 f'{self.tumor}__{self.normal}/sv/{self.tumor}.gridss.vcf.gz'
             ])
         }
-        
+
         vcf_analysis['key_vcf_analysis'] = {}
         for vcf_name, vcf_rel_path in key_vcfs.items():
             vcf_full_path = os.path.join(self.base_dir, vcf_rel_path)
@@ -712,7 +712,7 @@ class SashRunAnalyzer:
                 vcf_analysis['key_vcf_analysis'][vcf_name] = analysis
             else:
                 vcf_analysis['key_vcf_analysis'][vcf_name] = {'status': 'missing', 'file_path': vcf_rel_path}
-        
+
         return vcf_analysis
 
     def vcf_analysis(self, vcf_path: str, vcf_type: str) -> Dict[str, Any]:
@@ -728,18 +728,18 @@ class SashRunAnalyzer:
             'header_info': {},
             'variant_examples': []
         }
-        
+
         try:
             # Parse VCF header for metadata
             header_lines = []
             variant_count = 0
-            
+
             opener = gzip.open if vcf_path.endswith('.gz') else open
             mode = 'rt' if vcf_path.endswith('.gz') else 'r'
-            
+
             with opener(vcf_path, mode, encoding='utf-8', errors='ignore') as f:
                 samples = []
-                
+
                 for line in f:
                     if line.startswith('##'):
                         header_lines.append(line.strip())
@@ -750,30 +750,30 @@ class SashRunAnalyzer:
                         if len(header_parts) > 9:
                             samples = header_parts[9:]
                         continue
-                    
+
                     # Parse variant line
                     variant_count += 1
                     if variant_count > 10000:  # Limit for performance
                         break
-                        
+
                     parts = line.strip().split('\t')
                     if len(parts) < 8:
                         continue
-                    
+
                     chrom, pos, var_id, ref, alt, qual, filter_val, info = parts[:8]
-                    
+
                     # Count by chromosome
                     analysis['by_chromosome'][chrom] = analysis['by_chromosome'].get(chrom, 0) + 1
-                    
+
                     # Count by filter
                     filters = filter_val.split(';') if filter_val != 'PASS' and filter_val != '.' else ['PASS']
                     for f in filters:
                         analysis['by_filter'][f] = analysis['by_filter'].get(f, 0) + 1
-                    
+
                     # Determine variant type
                     var_type = self._classify_variant_type(ref, alt)
                     analysis['by_type'][var_type] = analysis['by_type'].get(var_type, 0) + 1
-                    
+
                     # Quality scoring
                     try:
                         qual_score = float(qual) if qual != '.' else 0
@@ -785,7 +785,7 @@ class SashRunAnalyzer:
                             analysis['by_quality']['low'] += 1
                     except ValueError:
                         analysis['by_quality']['low'] += 1
-                    
+
                     # Parse INFO field for annotations
                     info_fields = {}
                     for item in info.split(';'):
@@ -794,11 +794,11 @@ class SashRunAnalyzer:
                             info_fields[key] = value
                         else:
                             info_fields[item] = True
-                    
+
                     # Extract specific annotations based on VCF type
                     if vcf_type in ['pcgr_pass', 'cpsr_pass']:
                         self._extract_annotation_details(info_fields, analysis['annotation_details'])
-                    
+
                     # Collect sample information if available
                     if len(parts) > 9 and samples:
                         format_fields = parts[8].split(':') if len(parts) > 8 else []
@@ -807,13 +807,13 @@ class SashRunAnalyzer:
                                 sample_data = parts[9 + i].split(':')
                                 if sample_name not in analysis['sample_details']:
                                     analysis['sample_details'][sample_name] = {'genotypes': {}, 'depths': []}
-                                
+
                                 # Extract genotype
                                 if 'GT' in format_fields and len(sample_data) > format_fields.index('GT'):
                                     gt = sample_data[format_fields.index('GT')]
                                     analysis['sample_details'][sample_name]['genotypes'][gt] = \
                                         analysis['sample_details'][sample_name]['genotypes'].get(gt, 0) + 1
-                                
+
                                 # Extract depth
                                 if 'DP' in format_fields and len(sample_data) > format_fields.index('DP'):
                                     try:
@@ -821,7 +821,7 @@ class SashRunAnalyzer:
                                         analysis['sample_details'][sample_name]['depths'].append(depth)
                                     except (ValueError, IndexError):
                                         pass
-                    
+
                     # Store examples of interesting variants
                     if len(analysis['variant_examples']) < 10:
                         if filter_val == 'PASS' or var_type in ['SNV', 'INDEL']:
@@ -834,12 +834,12 @@ class SashRunAnalyzer:
                                 'key_annotations': self._extract_key_annotations(info_fields, vcf_type)
                             }
                             analysis['variant_examples'].append(example)
-            
+
             analysis['total'] = variant_count
-            
+
             # Process header information
             analysis['header_info'] = self._parse_vcf_header(header_lines)
-            
+
             # Calculate summary statistics for sample depths
             for sample_name, sample_data in analysis['sample_details'].items():
                 if sample_data['depths']:
@@ -851,11 +851,11 @@ class SashRunAnalyzer:
                         'max': max(depths)
                     }
                     sample_data['depths'] = []  # Clear to save memory
-                    
+
         except Exception as e:
             print(f"Error in VCF analysis for {vcf_path}: {e}")
             analysis['error'] = str(e)
-        
+
         return analysis
 
     def _classify_variant_type(self, ref: str, alt: str) -> str:
@@ -875,17 +875,17 @@ class SashRunAnalyzer:
         """Extract annotation details from INFO field."""
         # Common annotation fields to track
         annotation_keys = [
-            'CSQ', 'ANN', 'SYMBOL', 'Consequence', 'IMPACT', 'Gene', 
+            'CSQ', 'ANN', 'SYMBOL', 'Consequence', 'IMPACT', 'Gene',
             'Feature_type', 'BIOTYPE', 'HGVSc', 'HGVSp', 'TIER',
             'CLASSIFICATION', 'CPSR_CLASSIFICATION', 'PCGR_TIER'
         ]
-        
+
         for key in annotation_keys:
             if key in info_fields:
                 value = str(info_fields[key])
                 if key not in annotation_details:
                     annotation_details[key] = {}
-                
+
                 # For complex annotations like CSQ, count unique values
                 if key in ['CSQ', 'ANN'] and '|' in value:
                     # Split and count consequences
@@ -902,7 +902,7 @@ class SashRunAnalyzer:
     def _extract_key_annotations(self, info_fields: Dict, vcf_type: str) -> Dict:
         """Extract key annotations for variant examples."""
         key_info = {}
-        
+
         if vcf_type == 'pcgr_pass':
             for key in ['SYMBOL', 'Consequence', 'IMPACT', 'TIER', 'PCGR_TIER']:
                 if key in info_fields:
@@ -916,7 +916,7 @@ class SashRunAnalyzer:
             for key in ['SVTYPE', 'SVLEN', 'IMPRECISE', 'END']:
                 if key in info_fields:
                     key_info[key] = str(info_fields[key])[:50]
-        
+
         return key_info
 
     def _parse_vcf_header(self, header_lines: List[str]) -> Dict:
@@ -929,7 +929,7 @@ class SashRunAnalyzer:
             'software_versions': {},
             'reference_genome': None
         }
-        
+
         for line in header_lines:
             if line.startswith('##FORMAT='):
                 header_info['format_lines'] += 1
@@ -948,18 +948,18 @@ class SashRunAnalyzer:
                     key = parts[0].replace('##', '')
                     value = parts[1]
                     header_info['software_versions'][key] = value[:100]  # Truncate
-        
+
         return header_info
 
     def explore_subdirectories(self) -> Dict[str, Any]:
         """Explore and analyze subdirectory structure and key files."""
         directory_analysis = {}
-        
+
         # Map of expected subdirectories and their purposes
         expected_dirs = {
             'purple': 'Purple variant processing and purity/ploidy analysis',
             'smlv_somatic': 'Small variant somatic calling',
-            'smlv_germline': 'Small variant germline calling', 
+            'smlv_germline': 'Small variant germline calling',
             'sv': 'Structural variant calling',
             'cancer_report': 'Cancer report generation',
             'smlv_somatic/report/pcgr': 'PCGR somatic variant annotation',
@@ -968,58 +968,58 @@ class SashRunAnalyzer:
             'chord': 'CHORD homologous recombination deficiency',
             'multiqc': 'MultiQC quality control reports'
         }
-        
+
         directory_analysis['expected_directories'] = {}
         directory_analysis['file_inventory'] = {}
-        
+
         for dir_name, description in expected_dirs.items():
             dir_path = os.path.join(self.base_dir, dir_name)
             dir_exists = os.path.exists(dir_path)
-            
+
             directory_analysis['expected_directories'][dir_name] = {
                 'exists': dir_exists,
                 'description': description,
                 'path': dir_name
             }
-            
+
             if dir_exists:
                 # Count files by type in this directory
                 file_counts = {}
                 total_size = 0
-                
+
                 for root, dirs, files in os.walk(dir_path):
                     for file in files:
                         file_path = os.path.join(root, file)
                         file_ext = os.path.splitext(file)[1].lower()
                         if not file_ext:
                             file_ext = 'no_extension'
-                        
+
                         file_counts[file_ext] = file_counts.get(file_ext, 0) + 1
                         try:
                             total_size += os.path.getsize(file_path)
                         except (OSError, IOError):
                             pass
-                
+
                 directory_analysis['expected_directories'][dir_name]['file_counts'] = file_counts
                 directory_analysis['expected_directories'][dir_name]['total_size_mb'] = round(total_size / (1024 * 1024), 2)
                 directory_analysis['expected_directories'][dir_name]['total_files'] = sum(file_counts.values())
-        
+
         # Analyze PCGR subdirectory in detail
         pcgr_dir = os.path.join(self.base_dir, 'smlv_somatic', 'report', 'pcgr')
         if os.path.exists(pcgr_dir):
             directory_analysis['pcgr_detailed'] = self._analyze_pcgr_directory(pcgr_dir)
-        
-        # Analyze CPSR subdirectory in detail  
+
+        # Analyze CPSR subdirectory in detail
         cpsr_dir = os.path.join(self.base_dir, 'smlv_germline', 'report', 'cpsr')
         if os.path.exists(cpsr_dir):
             directory_analysis['cpsr_detailed'] = self._analyze_cpsr_directory(cpsr_dir)
-            
+
         return directory_analysis
 
     def _analyze_pcgr_directory(self, pcgr_dir: str) -> Dict[str, Any]:
         """Detailed analysis of PCGR output directory."""
         pcgr_analysis = {}
-        
+
         # Expected PCGR files
         expected_files = [
             f'{self.tumor}.pcgr_acmg.grch38.pass.vcf.gz',
@@ -1029,7 +1029,7 @@ class SashRunAnalyzer:
             f'{self.tumor}.pcgr_acmg.grch38.maf',
             f'{self.tumor}.pcgr_acmg.grch38.snvs_indels.tsv'
         ]
-        
+
         pcgr_analysis['file_status'] = {}
         for file_name in expected_files:
             file_path = os.path.join(pcgr_dir, file_name)
@@ -1037,7 +1037,7 @@ class SashRunAnalyzer:
                 'exists': os.path.exists(file_path),
                 'size_mb': round(os.path.getsize(file_path) / (1024 * 1024), 2) if os.path.exists(file_path) else 0
             }
-        
+
         # Parse PCGR tier statistics - try primary name then fallback variants
         pcgr_tiers_candidates = [
             os.path.join(pcgr_dir, f'{self.tumor}.pcgr_acmg.grch38.snvs_indels.tiers.tsv'),
@@ -1071,13 +1071,13 @@ class SashRunAnalyzer:
                 'md5': self._calculate_file_md5(msigs_found),
                 'metrics': self.parse_pcgr_msigs(msigs_found, top_n=8)
             }
-        
+
         return pcgr_analysis
 
     def _analyze_cpsr_directory(self, cpsr_dir: str) -> Dict[str, Any]:
         """Detailed analysis of CPSR output directory."""
         cpsr_analysis = {}
-        
+
         # Expected CPSR files
         expected_files = [
             f'{self.normal}.cpsr.grch38.pass.vcf.gz',
@@ -1086,7 +1086,7 @@ class SashRunAnalyzer:
             f'{self.normal}.cpsr.grch38.html',
             f'{self.normal}.cpsr.grch38.snvs_indels.tsv'
         ]
-        
+
         cpsr_analysis['file_status'] = {}
         for file_name in expected_files:
             file_path = os.path.join(cpsr_dir, file_name)
@@ -1094,7 +1094,7 @@ class SashRunAnalyzer:
                 'exists': os.path.exists(file_path),
                 'size_mb': round(os.path.getsize(file_path) / (1024 * 1024), 2) if os.path.exists(file_path) else 0
             }
-        
+
         # Parse CPSR classification statistics - try primary then alternative names
         cpsr_tiers_candidates = [
             os.path.join(cpsr_dir, f'{self.normal}.cpsr.grch38.snvs_indels.tiers.tsv'),
@@ -1110,9 +1110,9 @@ class SashRunAnalyzer:
         if cpsr_tiers_found:
             cpsr_analysis['classification_counts'] = self.parse_cpsr_tier_counts(cpsr_tiers_found)
             cpsr_analysis['classification_file_used'] = os.path.basename(cpsr_tiers_found)
-        
+
         return cpsr_analysis
-    
+
     def parse_purple_purity(self) -> Dict[str, Any]:
         """Parse Purple purity file using pandas."""
         path = os.path.join(self.base_dir, 'purple', f'{self.tumor}.purple.purity.tsv')
@@ -1128,7 +1128,7 @@ class SashRunAnalyzer:
         if df.empty:
             return []
         return df.to_dict(orient='records')
-    
+
     def parse_purple_qc(self) -> Dict[str, Any]:
         """Parse Purple QC metrics using pandas."""
         path = os.path.join(self.base_dir, 'purple', f'{self.tumor}.purple.qc')
@@ -1136,7 +1136,7 @@ class SashRunAnalyzer:
         if df.empty:
             return {}
         return df.iloc[0].to_dict()
-    
+
     def parse_purple_cnv_somatic(self) -> Dict[str, Any]:
         """Parse Purple somatic CNV segments using pandas."""
         path = os.path.join(self.base_dir, 'purple', f'{self.tumor}.purple.cnv.somatic.tsv')
@@ -1211,7 +1211,7 @@ class SashRunAnalyzer:
                     key_gene_status[g] = {'copyNumber': float(c) if pd.notna(c) else None, 'type': categorise(c)}
 
         return {'total_genes': len(df), 'by_type': by_type, 'key_cancer_genes': key_gene_status}
-    
+
     def _parse_af_file(self, af_path: str) -> Dict[str, Any]:
         """Parse AF (allele frequency) file using pandas."""
         df = read_tsv_file(af_path)
@@ -1262,36 +1262,36 @@ class SashRunAnalyzer:
             if os.path.exists(path):
                 return self._parse_af_file(path)
         return {'total_variants': 0, 'af_distribution': {}, 'summary_stats': {}}
-    
+
     def parse_variant_counts_json(self, json_path: str) -> Dict[str, Any]:
-        """Parse variant counts JSON for TMB/MSI metrics - PAVE-affected."""
+        """Parse variant counts JSON for TMB/MSI metrics."""
         if not os.path.exists(json_path):
             return {}
-        
+
         data = self._read_json_file(json_path)
         if not data:
             return {}
-        
+
         # Extract TMB and MSI related metrics
         tmb_msi = {}
-        
+
         # Look for TMB metrics
         if 'tmb' in data:
             tmb_msi['tmb'] = data['tmb']
         elif 'TMB' in data:
             tmb_msi['tmb'] = data['TMB']
-        
+
         # Look for MSI metrics
         if 'msi' in data:
             tmb_msi['msi'] = data['msi']
         elif 'MSI' in data:
             tmb_msi['msi'] = data['MSI']
-        
+
         # Extract variant counts that affect TMB calculation
         for key in ['total_variants', 'coding_variants', 'synonymous', 'nonsynonymous']:
             if key in data:
                 tmb_msi[key] = data[key]
-        
+
         return tmb_msi
 
     def parse_pcgr_msigs(self, msigs_path: str, top_n: int = 5) -> List[Dict[str, Any]]:
@@ -1316,34 +1316,34 @@ class SashRunAnalyzer:
             {'signature_id': row[sig_col], 'prop': row[prop_col], 'aetiology': row.get(aeti_col) if aeti_col else None}
             for _, row in df.iterrows()
         ]
-    
+
     def analyze_baf_circos(self) -> Dict[str, Any]:
-        """Analyze BAF circos plot - PAVE-affected (uses purple_dir)."""
+        """Analyze BAF circos plot (uses purple_dir)."""
         baf_plot_path = os.path.join(self.base_dir, 'cancer_report', f'{self.tumor}.circos_baf.png')
         if not os.path.exists(baf_plot_path):
             # Try alternative locations
             baf_plot_path = os.path.join(self.base_dir, 'purple', f'{self.tumor}.circos_baf.png')
-        
+
         baf_analysis = {
             'path': baf_plot_path,
             'md5': self._calculate_file_md5(baf_plot_path) if os.path.exists(baf_plot_path) else None,
             'exists': os.path.exists(baf_plot_path)
         }
-        
+
         return baf_analysis
-    
+
     def analyze_linx_outputs(self) -> Dict[str, Any]:
-        """Analyze LINX outputs - PAVE-affected (takes purple_dir as input)."""
+        """Analyze LINX outputs (takes purple_dir as input)."""
         linx_dir = os.path.join(self.base_dir, 'linx')
-        
+
         linx_analysis = {
             'directory_exists': os.path.exists(linx_dir),
             'key_files': {}
         }
-        
+
         if not os.path.exists(linx_dir):
             return linx_analysis
-        
+
         # Key LINX files to track with content metrics only
         key_files = [
             f'{self.tumor}.linx.breakend.tsv',
@@ -1352,7 +1352,7 @@ class SashRunAnalyzer:
             f'{self.tumor}.linx.links.tsv',
             f'{self.tumor}.linx.svs.tsv'
         ]
-        
+
         for filename in key_files:
             file_path = os.path.join(linx_dir, filename)
             exists = os.path.exists(file_path)
@@ -1362,25 +1362,25 @@ class SashRunAnalyzer:
                 'exists': exists,
                 'record_count': len(read_tsv_file(file_path)) if exists else 0,
             }
-        
+
         return linx_analysis
-    
+
     def analyze_cancer_report(self) -> Dict[str, Any]:
-        """Analyze cancer report - PAVE-affected (groups purple_dir outputs)."""
+        """Analyze cancer report (groups purple_dir outputs)."""
         cancer_report_dir = os.path.join(self.base_dir, 'cancer_report')
-        
+
         report_analysis = {
             'directory_exists': os.path.exists(cancer_report_dir),
             'report_files': {}
         }
-        
+
         # Key cancer report files - focus on content tracking only
         report_files = [
             f'{self.tumor}_cancer_report.html',
             f'{self.tumor}.cancer_report.html',
             'cancer_report.html'
         ]
-        
+
         for filename in report_files:
             file_path = os.path.join(cancer_report_dir, filename)
             if os.path.exists(file_path):
@@ -1390,7 +1390,7 @@ class SashRunAnalyzer:
                     'exists': True
                 }
                 break  # Found the report
-        
+
         # Check for supporting files affected by PAVE - content tracking only
         supporting_files = [
             f'{self.tumor}.cnv.prioritised.tsv',
@@ -1399,7 +1399,7 @@ class SashRunAnalyzer:
             'af_tumor_keygenes.txt',
             'af_tumor.txt'
         ]
-        
+
         for filename in supporting_files:
             file_path = os.path.join(cancer_report_dir, filename)
             exists = os.path.exists(file_path)
@@ -1409,7 +1409,7 @@ class SashRunAnalyzer:
                 'exists': exists,
                 'record_count': len(read_tsv_file(file_path)) if exists else 0,
             }
-        
+
         return report_analysis
 
     def parse_cancer_report_table(self, base_filename: str) -> Dict[str, Any]:
@@ -1419,14 +1419,14 @@ class SashRunAnalyzer:
             os.path.join(self.base_dir, 'cancer_report', 'cancer_report_tables', 'json'),
             os.path.join(self.base_dir, 'cancer_report')
         ]
-        
+
         # Generate filename variants to try (with and without pair prefix)
         filename_variants = [
             base_filename,  # e.g., L2500643-qc_summary
             f'{self.tumor}__{self.normal}_{base_filename}',  # e.g., L2500643__L2500642_L2500643-qc_summary
             f'{self.tumor}_{self.normal}_{base_filename}',   # e.g., L2500643_L2500642_L2500643-qc_summary
         ]
-        
+
         candidates = []
         for directory in table_dirs:
             for variant in filename_variants:
@@ -1436,9 +1436,9 @@ class SashRunAnalyzer:
                 candidates.append(os.path.join(directory, f'{variant}.txt'))
                 candidates.append(os.path.join(directory, f'{variant}.json.gz'))
                 candidates.append(os.path.join(directory, f'{variant}.json'))
-        
+
         chosen_path = next((path for path in candidates if os.path.exists(path)), None)
-        
+
         # If not found by exact pattern, try wildcard search (for files with run ID prefixes)
         if not chosen_path:
             import glob
@@ -1454,18 +1454,18 @@ class SashRunAnalyzer:
                             break
                 if chosen_path:
                     break
-        
+
         result: Dict[str, Any] = {
             'path': chosen_path,
             'md5': self._calculate_file_md5(chosen_path) if chosen_path else None,
             'metrics': {}
         }
-        
+
         if not chosen_path:
             return result
-        
+
         metrics: Dict[str, Any] = {}
-        
+
         try:
             if chosen_path.endswith(('.tsv', '.tsv.gz', '.txt', '.txt.gz')):
                 lines = self._read_text_file(chosen_path)
@@ -1483,12 +1483,12 @@ class SashRunAnalyzer:
                         occurrence = used_keys.get(identifier, 0)
                         unique_identifier = identifier if occurrence == 0 else f"{identifier}#{occurrence + 1}"
                         used_keys[identifier] = occurrence + 1
-                        
+
                         if len(parts) > 1:
                             metrics[unique_identifier] = self._stringify_value(parts[1])
                         else:
                             metrics[unique_identifier] = ''
-                        
+
                         for col_idx, value in enumerate(parts[2:], start=2):
                             column_name = header[col_idx] if col_idx < len(header) else f'col_{col_idx}'
                             metrics[f"{unique_identifier}__{column_name}"] = self._stringify_value(value)
@@ -1502,21 +1502,21 @@ class SashRunAnalyzer:
                     metrics['_entry_count'] = len(data)
                     used_keys: Dict[str, int] = {}
                     key_fields = ['key', 'variable', 'name', 'title', 'id', 'label']
-                    
+
                     for idx, entry in enumerate(data):
                         if isinstance(entry, dict):
                             identifier = next((entry.get(field) for field in key_fields if entry.get(field)), None)
                             if identifier is None:
                                 identifier = f'entry_{idx}'
                             identifier = str(identifier)
-                            
+
                             occurrence = used_keys.get(identifier, 0)
                             unique_identifier = identifier if occurrence == 0 else f"{identifier}#{occurrence + 1}"
                             used_keys[identifier] = occurrence + 1
-                            
+
                             if 'value' in entry:
                                 metrics[unique_identifier] = self._stringify_value(entry.get('value'))
-                            
+
                             for extra_key, extra_value in entry.items():
                                 if extra_key in key_fields or extra_key == 'value':
                                     continue
@@ -1527,10 +1527,10 @@ class SashRunAnalyzer:
                     metrics['_value'] = self._stringify_value(data)
         except Exception as e:
             print(f"Warning: could not normalise cancer report table {chosen_path}: {e}")
-        
+
         result['metrics'] = metrics
         return result
-    
+
     def parse_multiqc_data(self) -> Dict[str, Any]:
         """Parse MultiQC data."""
         multiqc_path = os.path.join(self.base_dir, 'multiqc_data', 'multiqc_data.json')
@@ -1593,7 +1593,7 @@ class SashRunAnalyzer:
             }
 
         return dragen_metrics
-    
+
     def analyze_run(self) -> Dict[str, Any]:
         """Perform comprehensive analysis of the run - focused on metrics, not file sizes."""
         analysis = {
@@ -1604,11 +1604,11 @@ class SashRunAnalyzer:
                 'normal': self.normal
             }
         }
-        
+
         # BCFtools statistics - CONTENT COMPARISON
         somatic_stats_path = os.path.join(self.base_dir, 'smlv_somatic', 'report', f'{self.tumor}.somatic.bcftools_stats.txt')
         germline_stats_path = os.path.join(self.base_dir, 'smlv_germline', 'report', f'{self.normal}.germline.bcftools_stats.txt')
-        
+
         analysis['somatic_bcftools'] = {
             'path': somatic_stats_path,
             'md5': self._calculate_file_md5(somatic_stats_path),
@@ -1619,11 +1619,11 @@ class SashRunAnalyzer:
             'md5': self._calculate_file_md5(germline_stats_path),
             'metrics': self.parse_bcftools_stats(germline_stats_path)
         }
-        
+
         # VCF analysis - CONTENT COMPARISON
         purple_somatic_vcf = os.path.join(self.base_dir, 'purple', f'{self.tumor}.purple.somatic.vcf.gz')
         purple_sv_vcf = os.path.join(self.base_dir, 'purple', f'{self.tumor}.purple.sv.vcf.gz')
-        
+
         analysis['purple_somatic_vcf'] = {
             'path': purple_somatic_vcf,
             'md5': self._calculate_file_md5(purple_somatic_vcf),
@@ -1634,11 +1634,11 @@ class SashRunAnalyzer:
             'md5': self._calculate_file_md5(purple_sv_vcf),
             'metrics': self.parse_sv_vcf(purple_sv_vcf)
         }
-        
+
         # PCGR/CPSR analysis - CONTENT COMPARISON
         pcgr_dir = os.path.join(self.base_dir, 'smlv_somatic', 'report', 'pcgr')
         cpsr_dir = os.path.join(self.base_dir, 'smlv_germline', 'report', 'cpsr')
-        
+
         # Find PCGR tiers file with fallbacks (including .pcgr.grch38.snv_indel_ann.tsv.gz)
         pcgr_tiers_candidates = [
             os.path.join(pcgr_dir, f'{self.tumor}.pcgr_acmg.grch38.snvs_indels.tiers.tsv'),
@@ -1752,20 +1752,20 @@ class SashRunAnalyzer:
             }
         else:
             analysis['cpsr_tiers'] = {'path': None, 'md5': None, 'metrics': {}}
-        
+
         # PCGR/CPSR VCF files for overlap analysis - CONTENT COMPARISON
         pcgr_pass_vcf = os.path.join(pcgr_dir, f'{self.tumor}.pcgr_acmg.grch38.pass.vcf.gz')
         cpsr_pass_vcf = os.path.join(cpsr_dir, f'{self.normal}.cpsr.grch38.pass.vcf.gz')
-        
+
         # Detailed PCGR PASS records for deep-dive
         analysis['pcgr_pass_records'] = self.parse_pcgr_pass_records(pcgr_pass_vcf)
-        
+
         # Purple analysis - ENHANCED for PAVE impact tracking - CONTENT COMPARISON
         purity_path = os.path.join(self.base_dir, 'purple', f'{self.tumor}.purple.purity.tsv')
         qc_path = os.path.join(self.base_dir, 'purple', f'{self.tumor}.purple.qc')
         cnv_somatic_path = os.path.join(self.base_dir, 'purple', f'{self.tumor}.purple.cnv.somatic.tsv')
         cnv_gene_path = os.path.join(self.base_dir, 'purple', f'{self.tumor}.purple.cnv.gene.tsv')
-        
+
         analysis['purple_purity'] = {
             'path': purity_path,
             'md5': self._calculate_file_md5(purity_path),
@@ -1786,14 +1786,14 @@ class SashRunAnalyzer:
             'md5': self._calculate_file_md5(cnv_gene_path),
             'metrics': self.parse_purple_cnv_gene()
         }
-        
+
         analysis['purple_drivers_somatic'] = self.parse_purple_drivers('somatic')
         analysis['purple_drivers_germline'] = self.parse_purple_drivers('germline')
-        
+
         # AF tables analysis - CRITICAL for PAVE impact - CONTENT COMPARISON
         af_keygenes_path = os.path.join(self.base_dir, 'cancer_report', 'af_tumor_keygenes.txt')
         af_global_path = os.path.join(self.base_dir, 'cancer_report', 'af_tumor.txt')
-        
+
         analysis['af_tumor_keygenes'] = {
             'path': af_keygenes_path,
             'md5': self._calculate_file_md5(af_keygenes_path),
@@ -1808,7 +1808,7 @@ class SashRunAnalyzer:
         # Cancer report JSON tables (QC summary) - CONTENT COMPARISON
         qc_summary_basename = f'{self.tumor}-qc_summary'
         analysis['cancer_report_qc_summary'] = self.parse_cancer_report_table(qc_summary_basename)
-        
+
         # TMB/MSI calculations - from variant counts JSON - CONTENT COMPARISON
         variant_counts_path = os.path.join(self.base_dir, 'smlv_somatic', 'report', f'{self.tumor}.somatic.variant_counts_process.json')
         analysis['tmb_msi_metrics'] = {
@@ -1816,13 +1816,13 @@ class SashRunAnalyzer:
             'md5': self._calculate_file_md5(variant_counts_path),
             'metrics': self.parse_variant_counts_json(variant_counts_path)
         }
-        
+
         # SV pipeline steps - COUNT ONLY WHEN FILES DIFFER
         sv_dir = os.path.join(self.base_dir, 'sv_somatic')
         annotated_sv_path = os.path.join(sv_dir, 'annotate', f'{self.tumor}.annotated.vcf.gz')
         sv_prioritised_path = os.path.join(sv_dir, 'prioritise', f'{self.tumor}.sv.prioritised.tsv')
         cnv_prioritised_path = os.path.join(sv_dir, 'prioritise', f'{self.tumor}.cnv.prioritised.tsv')
-        
+
         def _count_data_lines(path: str, skip_header: bool = True) -> int:
             """Count data lines in a file (VCF: skip # lines, TSV: skip header)."""
             lines = self._read_text_file(path)
@@ -1849,10 +1849,10 @@ class SashRunAnalyzer:
                 'count': max(0, len(self._read_text_file(cnv_prioritised_path)) - 1)
             }
         }
-        
+
         # BAF circos plot analysis - CONTENT COMPARISON
         analysis['baf_circos'] = self.analyze_baf_circos()
-        
+
         # MultiQC analysis - CONTENT COMPARISON
         analysis['multiqc'] = self.parse_multiqc_data()
 
@@ -1861,10 +1861,10 @@ class SashRunAnalyzer:
 
         # LINX analysis - CONTENT COMPARISON
         analysis['linx_analysis'] = self.analyze_linx_outputs()
-        
+
         # Cancer report analysis - CONTENT COMPARISON
         analysis['cancer_report'] = self.analyze_cancer_report()
-        
+
         return analysis
 
     def parse_pcgr_pass_records(self, vcf_path: str) -> List[Dict[str, Any]]:
@@ -1969,14 +1969,14 @@ class SashRunAnalyzer:
 
 class ComparisonReporter:
     """Generate comprehensive comparison reports."""
-    
-    def __init__(self, analysis1: Dict[str, Any], analysis2: Dict[str, Any], 
+
+    def __init__(self, analysis1: Dict[str, Any], analysis2: Dict[str, Any],
                  run1_name: str, run2_name: str):
         self.analysis1 = analysis1
         self.analysis2 = analysis2
         self.run1_name = run1_name
         self.run2_name = run2_name
-    
+
     def calculate_jaccard_similarity(self, set1: Set[str], set2: Set[str]) -> float:
         """Calculate Jaccard similarity between two sets."""
         if not set1 and not set2:
@@ -1986,7 +1986,7 @@ class ComparisonReporter:
         intersection = len(set1 & set2)
         union = len(set1 | set2)
         return intersection / union if union > 0 else 0.0
-    
+
     def format_number(self, value) -> str:
         """Format number for display."""
         if value is None:
@@ -2103,7 +2103,7 @@ class ComparisonReporter:
             )
 
         return lines
-    
+
     def _format_cancer_qc_summary(self, metrics1: Dict[str, Any],
                                   metrics2: Dict[str, Any]) -> List[str]:
         """Produce a compact, readable summary for cancer QC metrics."""
@@ -2206,53 +2206,53 @@ class ComparisonReporter:
             lines.append(f"    ... {hidden} additional metrics changed")
 
         return lines
-    
+
     def compare_dict_metrics(self, dict1: Dict, dict2: Dict, title: str) -> List[str]:
         """Compare two dictionaries and return formatted comparison."""
         lines = [f"\n{title}"]
         lines.append("=" * len(title))
         lines.append("")  # Add space before table
-        
+
         all_keys = set(dict1.keys()) | set(dict2.keys())
-        
+
         if not all_keys:
             lines.append("   No metrics found in either run")
             return lines
-        
+
         # Determine column widths dynamically
         max_key_len = max(len(str(key)) for key in all_keys)
         key_width = max(25, max_key_len + 2)
         value_width = max(15, len(self.run1_name) + 2, len(self.run2_name) + 2)
-        
+
         # Table header with better formatting
         header = f"{'Metric':<{key_width}} {self.run1_name:<{value_width}} {self.run2_name:<{value_width}} {'Change':<12} {'Ratio':<8}"
         lines.append(header)
         lines.append("-" * len(header))
-        
+
         # Group metrics by type for better readability
         numeric_metrics = []
         string_metrics = []
-        
+
         for key in sorted(all_keys, key=self._metric_sort_key):
             val1 = dict1.get(key)
             val2 = dict2.get(key)
-            
+
             if isinstance(val1, (int, float)) or isinstance(val2, (int, float)):
                 numeric_metrics.append((key, val1, val2))
             else:
                 string_metrics.append((key, val1, val2))
-        
+
         # Display numeric metrics first (they're usually more important)
         for key, val1, val2 in numeric_metrics:
             diff = "-"
             ratio = "-"
-            
+
             if val1 is not None and val2 is not None:
                 try:
                     if isinstance(val1, (int, float)) and isinstance(val2, (int, float)):
                         diff = val2 - val1
                         ratio = val2 / val1 if val1 != 0 else "inf"
-                        
+
                         # Format difference with appropriate precision
                         if isinstance(diff, float) and abs(diff) < 0.001:
                             diff_str = f"{diff:+.3f}"
@@ -2260,53 +2260,53 @@ class ComparisonReporter:
                             diff_str = f"{diff:+.3f}"
                         else:
                             diff_str = f"{diff:+d}"
-                        
+
                         # Format ratio
                         if isinstance(ratio, float) and ratio != float('inf'):
                             ratio_str = f"{ratio:.3f}"
                         else:
                             ratio_str = str(ratio)
-                        
+
                         # Color coding for significant changes
                         if isinstance(diff, (int, float)) and diff != 0:
                             if abs(diff) > (abs(val1) * 0.05 if val1 != 0 else 0):  # >5% change
                                 diff_str = f"[CHANGED] {diff_str}"
-                        
+
                         diff = diff_str
                         ratio = ratio_str
                 except Exception:
                     pass
-            
+
             lines.append(f"{key:<{key_width}} {self.format_number(val1):<{value_width}} {self.format_number(val2):<{value_width}} {diff:<12} {ratio:<8}")
-        
+
         # Add separator if both types exist
         if numeric_metrics and string_metrics:
             lines.append("-" * len(header))
-        
+
         # Display string metrics
         for key, val1, val2 in string_metrics:
             change_indicator = "=" if val1 == val2 else "[CHANGED]"
             val1_str = self._safe_str(val1)
             val2_str = self._safe_str(val2)
             lines.append(f"{key:<{key_width}} {val1_str:<{value_width}} {val2_str:<{value_width}} {change_indicator:<12} {'-':<8}")
-        
+
         return lines
-    
+
     def generate_overlap_analysis(self) -> List[str]:
         """Generate variant overlap analysis."""
         lines = ["\nVariant Overlap Analysis"]
         lines.append("=" * 24)
-        
+
         # PCGR PASS variants overlap
         pcgr1 = self.analysis1.get('pcgr_pass_variants', set())
         pcgr2 = self.analysis2.get('pcgr_pass_variants', set())
-        
+
         if pcgr1 or pcgr2:
             jaccard = self.calculate_jaccard_similarity(pcgr1, pcgr2)
             intersection = len(pcgr1 & pcgr2)
             only_run1 = len(pcgr1 - pcgr2)
             only_run2 = len(pcgr2 - pcgr1)
-            
+
             lines.append("\nPCGR PASS Variants:")
             lines.append(f"  {self.run1_name} total: {len(pcgr1)}")
             lines.append(f"  {self.run2_name} total: {len(pcgr2)}")
@@ -2314,17 +2314,17 @@ class ComparisonReporter:
             lines.append(f"  Only in {self.run1_name}: {only_run1}")
             lines.append(f"  Only in {self.run2_name}: {only_run2}")
             lines.append(f"  Jaccard similarity: {jaccard:.3f}")
-        
+
         # CPSR PASS variants overlap
         cpsr1 = self.analysis1.get('cpsr_pass_variants', set())
         cpsr2 = self.analysis2.get('cpsr_pass_variants', set())
-        
+
         if cpsr1 or cpsr2:
             jaccard = self.calculate_jaccard_similarity(cpsr1, cpsr2)
             intersection = len(cpsr1 & cpsr2)
             only_run1 = len(cpsr1 - cpsr2)
             only_run2 = len(cpsr2 - cpsr1)
-            
+
             lines.append("\nCPSR PASS Variants:")
             lines.append(f"  {self.run1_name} total: {len(cpsr1)}")
             lines.append(f"  {self.run2_name} total: {len(cpsr2)}")
@@ -2332,7 +2332,7 @@ class ComparisonReporter:
             lines.append(f"  Only in {self.run1_name}: {only_run1}")
             lines.append(f"  Only in {self.run2_name}: {only_run2}")
             lines.append(f"  Jaccard similarity: {jaccard:.3f}")
-        
+
         return lines
 
     def investigate_pcgr_differences(self) -> List[str]:
@@ -2417,17 +2417,17 @@ class ComparisonReporter:
         lines.append(f"  Run 2-only MNPs that appear as SNV clusters in Run 1: {mnp_as_snvs_in_run1}")
 
         return lines
-    
+
     def generate_file_change_summary(self) -> List[str]:
         """Generate a summary of which files have changed based on MD5."""
         lines = ["\nFILE CHANGE SUMMARY (MD5-based)"]
         lines.append("=" * 37)
         lines.append("")
-        
+
         changed_files = []
         identical_files = []
         missing_files = []
-        
+
         # Key file categories to check - organized by analysis type
         file_categories = {
             "BCFtools Statistics": [
@@ -2455,16 +2455,16 @@ class ComparisonReporter:
                 ('cancer_report_qc_summary', 'Cancer Report QC Summary')
             ]
         }
-        
+
         # Process standard files
         for category, files in file_categories.items():
             for file_key, description in files:
                 data1 = self.analysis1.get(file_key, {})
                 data2 = self.analysis2.get(file_key, {})
-                
+
                 md5_1 = data1.get('md5')
                 md5_2 = data2.get('md5')
-                
+
                 if md5_1 is None and md5_2 is None:
                     missing_files.append(description)
                 elif md5_1 is None or md5_2 is None:
@@ -2473,18 +2473,18 @@ class ComparisonReporter:
                     identical_files.append(description)
                 else:
                     changed_files.append(description)
-        
+
         # SV pipeline files
         sv_steps = self.analysis1.get('sv_pipeline_steps', {})
         sv_steps2 = self.analysis2.get('sv_pipeline_steps', {})
-        
+
         for step_name, step_desc in [('annotated_sv', 'SV Annotated'), ('sv_prioritised', 'SV Prioritised'), ('cnv_prioritised', 'CNV Prioritised')]:
             step1 = sv_steps.get(step_name, {})
             step2 = sv_steps2.get(step_name, {})
-            
+
             md5_1 = step1.get('md5')
             md5_2 = step2.get('md5')
-            
+
             if md5_1 is None and md5_2 is None:
                 missing_files.append(step_desc)
             elif md5_1 is None or md5_2 is None:
@@ -2493,14 +2493,14 @@ class ComparisonReporter:
                 identical_files.append(step_desc)
             else:
                 changed_files.append(step_desc)
-        
+
         # Create visual status overview
         lines.append("STATUS OVERVIEW")
         lines.append(f"  Changed Files:   {len(changed_files):>3} files")
         lines.append(f"  Identical Files: {len(identical_files):>3} files")
         lines.append(f"  Missing Files:   {len(missing_files):>3} files")
         lines.append("")
-        
+
         # Detailed breakdown
         if changed_files:
             lines.append("CHANGED FILES (require detailed analysis):")
@@ -2525,9 +2525,9 @@ class ComparisonReporter:
 
         lines.append("NOTE: Only files with different MD5 checksums undergo detailed content analysis.")
         lines.append("=" * 90)
-        
+
         return lines
-    
+
     def compare_content_with_md5_check(self, data1: Dict[str, Any], data2: Dict[str, Any],
                                        title: str, leading_break: bool = True) -> List[str]:
         """Compare content between two run data dicts."""
@@ -2649,29 +2649,29 @@ class ComparisonReporter:
 
         lines.append("")
         return lines
-    
+
     def compare_sv_pipeline_steps(self) -> List[str]:
         """Compare SV pipeline steps using MD5 checks first."""
-        lines = ["\nSV Pipeline Steps (PAVE-affected)"]
+        lines = ["\nSV Pipeline Steps"]
         lines.append("=" * 31)
 
         sv1 = self.analysis1.get('sv_pipeline_steps', {})
         sv2 = self.analysis2.get('sv_pipeline_steps', {})
-        
+
         steps = ['annotated_sv', 'sv_prioritised', 'cnv_prioritised']
         step_names = ['Annotated SV VCF', 'SV Prioritised TSV', 'CNV Prioritised TSV']
-        
+
         for step, step_name in zip(steps, step_names):
             step1 = sv1.get(step, {})
             step2 = sv2.get(step, {})
-            
+
             md5_1 = step1.get('md5')
             md5_2 = step2.get('md5')
             count1 = step1.get('count', 0)
             count2 = step2.get('count', 0)
-            
+
             lines.append(f"\n{step_name}:")
-            
+
             if md5_1 is None and md5_2 is None:
                 lines.append("  Files missing in both runs")
             elif md5_1 is None:
@@ -2685,35 +2685,35 @@ class ComparisonReporter:
                 lines.append(f"  {self.run2_name}: {count2} records")
                 diff = count2 - count1
                 lines.append(f"  Difference: {diff:+d} records")
-        
+
         return lines
 
     def compare_key_cancer_genes_cnv(self) -> List[str]:
         """Compare key cancer genes CNV status - CRITICAL for PAVE impact assessment."""
-        lines = ["\nKey Cancer Genes CNV Status (PAVE-affected)"]
+        lines = ["\nKey Cancer Genes CNV Status"]
         lines.append("=" * 42)
-        
+
         cnv1 = self.analysis1.get('purple_cnv_gene', {}).get('key_cancer_genes', {})
         cnv2 = self.analysis2.get('purple_cnv_gene', {}).get('key_cancer_genes', {})
-        
+
         all_genes = set(cnv1.keys()) | set(cnv2.keys())
-        
+
         if not all_genes:
             lines.append("No key cancer genes found in either run")
             return lines
-        
+
         lines.append(f"{'Gene':<10} {self.run1_name + ' CN':<15} {self.run1_name + ' Type':<15} {self.run2_name + ' CN':<15} {self.run2_name + ' Type':<15} {'Status':<15}")
         lines.append("-" * 90)
-        
+
         for gene in sorted(all_genes):
             info1 = cnv1.get(gene, {})
             info2 = cnv2.get(gene, {})
-            
+
             cn1 = info1.get('copyNumber', 'N/A')
             cn2 = info2.get('copyNumber', 'N/A')
             type1 = info1.get('type', 'N/A')
             type2 = info2.get('type', 'N/A')
-            
+
             # Determine status
             if cn1 == 'N/A' and cn2 != 'N/A':
                 status = f"New in {self.run2_name}"
@@ -2732,10 +2732,10 @@ class ComparisonReporter:
                     status = "Stable"
             else:
                 status = "Stable"
-            
+
             cn1_str = f"{cn1:.2f}" if isinstance(cn1, float) else str(cn1)
             cn2_str = f"{cn2:.2f}" if isinstance(cn2, float) else str(cn2)
-            
+
             lines.append(f"{gene:<10} {cn1_str:<15} {type1:<15} {cn2_str:<15} {type2:<15} {status:<15}")
 
         return lines
@@ -2960,7 +2960,7 @@ class ComparisonReporter:
             'sv_counts': {},
             'file_comparison': {}
         }
-        
+
         # Purple purity and QC metrics
         for run_key, analysis in [('run1', self.analysis1), ('run2', self.analysis2)]:
             if 'purple_purity' in analysis and 'metrics' in analysis['purple_purity']:
@@ -2971,7 +2971,7 @@ class ComparisonReporter:
                     'minPurity': purity_data.get('minPurity'),
                     'maxPurity': purity_data.get('maxPurity')
                 }
-            
+
             if 'purple_qc' in analysis and 'metrics' in analysis['purple_qc']:
                 qc_data = analysis['purple_qc']['metrics']
                 if run_key not in metrics['purple']:
@@ -2982,11 +2982,11 @@ class ComparisonReporter:
                     'UnsupportedCopyNumberSegments': qc_data.get('UnsupportedCopyNumberSegments'),
                     'AmberMeanDepth': qc_data.get('AmberMeanDepth')
                 })
-        
+
         # VCF variant counts
         for run_key, analysis in [('run1', self.analysis1), ('run2', self.analysis2)]:
             metrics['vcf_counts'][run_key] = {}
-            
+
             if 'purple_somatic_vcf' in analysis and 'metrics' in analysis['purple_somatic_vcf']:
                 vcf_data = analysis['purple_somatic_vcf']['metrics']
                 metrics['vcf_counts'][run_key]['purple_somatic'] = {
@@ -2994,7 +2994,7 @@ class ComparisonReporter:
                     'by_type': vcf_data.get('by_type', {}),
                     'by_filter': vcf_data.get('by_filter', {})
                 }
-            
+
             if 'purple_sv_vcf' in analysis and 'metrics' in analysis['purple_sv_vcf']:
                 sv_data = analysis['purple_sv_vcf']['metrics']
                 metrics['sv_counts'][run_key] = {
@@ -3002,15 +3002,15 @@ class ComparisonReporter:
                     'by_type': sv_data.get('by_type', {}),
                     'by_filter': sv_data.get('by_filter', {})
                 }
-        
+
         # PCGR and CPSR tiers
         for run_key, analysis in [('run1', self.analysis1), ('run2', self.analysis2)]:
             if 'pcgr_tiers' in analysis and 'metrics' in analysis['pcgr_tiers']:
                 metrics['pcgr_tiers'][run_key] = analysis['pcgr_tiers']['metrics']
-            
+
             if 'cpsr_tiers' in analysis and 'metrics' in analysis['cpsr_tiers']:
                 metrics['cpsr_tiers'][run_key] = analysis['cpsr_tiers']['metrics']
-        
+
         # BCFtools statistics
         for run_key, analysis in [('run1', self.analysis1), ('run2', self.analysis2)]:
             if 'somatic_bcftools' in analysis and 'metrics' in analysis['somatic_bcftools']:
@@ -3021,24 +3021,24 @@ class ComparisonReporter:
                 if run_key not in metrics['bcftools_stats']:
                     metrics['bcftools_stats'][run_key] = {}
                 metrics['bcftools_stats'][run_key]['germline'] = analysis['germline_bcftools']['metrics']
-        
+
         # MultiQC summary stats (if available)
         for run_key, analysis in [('run1', self.analysis1), ('run2', self.analysis2)]:
             if 'multiqc_data' in analysis:
                 multiqc = analysis['multiqc_data']
                 if isinstance(multiqc, dict) and 'report_general_stats_data' in multiqc:
                     metrics['multiqc'][run_key] = multiqc['report_general_stats_data']
-        
+
         # File comparison summary (counts of identical, different, missing)
         file_status = {'identical': 0, 'different': 0, 'missing_run1': 0, 'missing_run2': 0, 'missing_both': 0}
-        
+
         # Count file statuses from key comparisons
-        for key in ['purple_purity', 'purple_qc', 'purple_somatic_vcf', 'purple_sv_vcf', 
+        for key in ['purple_purity', 'purple_qc', 'purple_somatic_vcf', 'purple_sv_vcf',
                     'pcgr_tiers', 'cpsr_tiers', 'somatic_bcftools', 'germline_bcftools']:
             if key in self.analysis1 and key in self.analysis2:
                 md5_1 = self.analysis1[key].get('md5')
                 md5_2 = self.analysis2[key].get('md5')
-                
+
                 if md5_1 is None and md5_2 is None:
                     file_status['missing_both'] += 1
                 elif md5_1 is None:
@@ -3049,20 +3049,18 @@ class ComparisonReporter:
                     file_status['identical'] += 1
                 else:
                     file_status['different'] += 1
-        
+
         metrics['file_comparison'] = file_status
-        
+
         return metrics
-    
+
     def generate_comprehensive_report(self) -> List[str]:
         """Generate the full comprehensive report - focused on content differences."""
         lines = []
-        
+
         # Header
         lines.append("COMPREHENSIVE SASH RUN COMPARISON REPORT")
         lines.append("=" * 41)
-        lines.append("PAVE FILTERING IMPACT ANALYSIS - CONTENT-FOCUSED")
-        lines.append("=" * 50)
         lines.append(f"{self.run1_name}: {self.analysis1['run_info']['run_dir']}")
         lines.append(f"{self.run2_name}: {self.analysis2['run_info']['run_dir']}")
         lines.append(f"Tumor Sample: {self.analysis1['run_info']['tumor']}")
@@ -3073,17 +3071,6 @@ class ComparisonReporter:
         lines.append("- Files are compared by content (metrics and values)")
         lines.append("- All files undergo detailed content analysis regardless of MD5 checksums")
         lines.append("- All comparisons focus on metrics and content, not file sizes")
-        lines.append("- PAVE-affected files are clearly marked for MNV filtering impact assessment")
-        lines.append("")
-        lines.append("PAVE-IMPACTED MODULES AND METRICS ANALYZED:")
-        lines.append("=" * 45)
-        lines.append("+ PURPLE outputs: Purity/ploidy, somatic CNV segments, gene-level CNV, driver catalogues, VCFs, QC metrics")
-        lines.append("+ Structural-variant annotation: BOLT_SV_SOMATIC_ANNOTATE and BOLT_SV_SOMATIC_PRIORITISE")
-        lines.append("+ Somatic small-variant reporting: PCGR tiers, AF statistics, TMB/MSI calculations")
-        lines.append("+ B-allele-frequency circos plot: BAF plot generation from purple_dir")
-        lines.append("+ Cancer report generation: GPGR report using purple_dir and variant metrics")
-        lines.append("+ MultiQC summarisation: PURPLE QC metrics integration")
-        lines.append("+ LINX structural-variant interpretation: SV clustering and fusion analysis")
         lines.append("")
         lines.append("=" * 90)
         lines.append("")
@@ -3098,53 +3085,53 @@ class ComparisonReporter:
         lines.extend(qc_section)
         lines.append("=" * 90)
         lines.append("")
-        
+
         # BCFtools comparison
         lines.extend(self.compare_content_with_md5_check(
             self.analysis1.get('somatic_bcftools', {}),
             self.analysis2.get('somatic_bcftools', {}),
-            "Somatic BCFtools Statistics (PAVE-affected)"
+            "Somatic BCFtools Statistics"
         ))
-        
+
         lines.extend(self.compare_content_with_md5_check(
             self.analysis1.get('germline_bcftools', {}),
             self.analysis2.get('germline_bcftools', {}),
-            "Germline BCFtools Statistics (PAVE-affected)"
+            "Germline BCFtools Statistics"
         ))
-        
+
         # VCF variant analysis - only if files differ
         lines.extend(self.compare_content_with_md5_check(
             self.analysis1.get('purple_somatic_vcf', {}),
             self.analysis2.get('purple_somatic_vcf', {}),
-            "Purple Somatic VCF Analysis (PAVE-affected)"
+            "Purple Somatic VCF Analysis"
         ))
-        
+
         lines.extend(self.compare_content_with_md5_check(
             self.analysis1.get('purple_sv_vcf', {}),
             self.analysis2.get('purple_sv_vcf', {}),
-            "Purple SV VCF Analysis (PAVE-affected)"
+            "Purple SV VCF Analysis"
         ))
-        
+
         # PCGR/CPSR tiers - only if files differ
         lines.extend(self.compare_content_with_md5_check(
             self.analysis1.get('pcgr_tiers', {}),
             self.analysis2.get('pcgr_tiers', {}),
-            "PCGR Tier Distribution (PAVE-affected)"
+            "PCGR Tier Distribution"
         ))
-        
+
         lines.extend(self.compare_content_with_md5_check(
             self.analysis1.get('cpsr_tiers', {}),
             self.analysis2.get('cpsr_tiers', {}),
-            "CPSR Tier Distribution (PAVE-affected)"
+            "CPSR Tier Distribution"
         ))
-        
+
         # Purple metrics - only if files differ
         lines.extend(self.compare_content_with_md5_check(
             self.analysis1.get('purple_purity', {}),
             self.analysis2.get('purple_purity', {}),
-            "Purple Purity and Quality Metrics (PAVE-affected)"
+            "Purple Purity and Quality Metrics"
         ))
-        
+
         # Driver counts
         lines.extend(self.compare_dict_metrics(
             {
@@ -3157,48 +3144,48 @@ class ComparisonReporter:
             },
             "Purple Driver Counts"
         ))
-        
+
         # PAVE-CRITICAL: Purple QC metrics comparison
         lines.extend(self.compare_content_with_md5_check(
             self.analysis1.get('purple_qc', {}),
             self.analysis2.get('purple_qc', {}),
-            "Purple QC Metrics (PAVE-affected)"
+            "Purple QC Metrics"
         ))
-        
+
         # PAVE-CRITICAL: CNV analysis
         lines.extend(self.compare_content_with_md5_check(
             self.analysis1.get('purple_cnv_somatic', {}),
             self.analysis2.get('purple_cnv_somatic', {}),
-            "Purple CNV Somatic Segments (PAVE-affected)"
+            "Purple CNV Somatic Segments"
         ))
-        
+
         lines.extend(self.compare_content_with_md5_check(
             self.analysis1.get('purple_cnv_gene', {}),
             self.analysis2.get('purple_cnv_gene', {}),
-            "Purple CNV Gene Level (PAVE-affected)"
+            "Purple CNV Gene Level"
         ))
-        
+
         # Key cancer genes CNV comparison
         lines.extend(self.compare_key_cancer_genes_cnv())
-        
+
         # PAVE-CRITICAL: AF tables comparison (purity-dependent calculations)
         lines.extend(self.compare_content_with_md5_check(
             self.analysis1.get('af_tumor_keygenes', {}),
             self.analysis2.get('af_tumor_keygenes', {}),
-            "Tumor AF Key Genes (PAVE-affected, purity-dependent)"
+            "Tumor AF Key Genes (purity-dependent)"
         ))
-        
+
         lines.extend(self.compare_content_with_md5_check(
             self.analysis1.get('af_tumor_global', {}),
             self.analysis2.get('af_tumor_global', {}),
-            "Tumor AF Global (PAVE-affected, purity-dependent)"
+            "Tumor AF Global (purity-dependent)"
         ))
-        
+
         # PAVE-CRITICAL: TMB/MSI metrics
         lines.extend(self.compare_content_with_md5_check(
             self.analysis1.get('tmb_msi_metrics', {}),
             self.analysis2.get('tmb_msi_metrics', {}),
-            "TMB/MSI Metrics (PAVE-affected, purity-adjusted)"
+            "TMB/MSI Metrics (purity-adjusted)"
         ))
 
         # DRAGEN-specific MultiQC metrics
@@ -3206,16 +3193,16 @@ class ComparisonReporter:
 
         # Pipeline steps - check MD5 and compare counts only if different
         lines.extend(self.compare_sv_pipeline_steps())
-        
+
         # Overlap analysis - core PAVE impact assessment
         lines.extend(self.generate_overlap_analysis())
-        
+
         # Deep-dive PCGR PASS differences - MNV splitting detection
         lines.extend(self.investigate_pcgr_differences())
-        
+
         # Exemplar variants with explanations
         lines.extend(self.exemplar_unique_variants())
-        
+
         return lines
 
 def main():
@@ -3229,15 +3216,15 @@ Examples:
            --run2 /path/to/run2/L2100780_L2100779 \\
            --tumor L2100780 --normal L2100779 \\
            --output comparison_output
-  
+
   # Batch comparison with config file
   %(prog)s --config runs-config.yaml --output batch_comparison
         """
     )
-    
+
     # Config file mode
     parser.add_argument('--config', help='YAML config file for batch processing')
-    
+
     # Single pair mode
     parser.add_argument('--run1', help='First SASH run directory')
     parser.add_argument('--run2', help='Second SASH run directory')
@@ -3245,14 +3232,14 @@ Examples:
     parser.add_argument('--alias2', default='Run2', help='Alias for second run (default: Run2)')
     parser.add_argument('--tumor', help='Tumor sample ID')
     parser.add_argument('--normal', help='Normal sample ID')
-    
+
     # Output options
     parser.add_argument('--output', '--out', required=True, help='Output directory')
-    
+
     args = parser.parse_args()
 
     setup_run_logging(args.output, args.config)
-    
+
     # Validate arguments
     if args.config:
         # Batch mode
@@ -3290,13 +3277,13 @@ def _write_comparison_output(
     """Generate comparison and write report + JSON output."""
     print(f"  Generating comparison...")
     reporter = ComparisonReporter(analysis1, analysis2, alias1, alias2)
-    
+
     # Write text report
     report_file = pair_output / 'report.txt'
     with open(report_file, 'w') as f:
         f.write('\n'.join(reporter.generate_comprehensive_report()))
     print(f"  Report: {report_file}")
-    
+
     # Build and write JSON metrics
     metrics = {
         'pair': pair_name,
@@ -3317,7 +3304,7 @@ def _write_comparison_output(
         },
         'comparison': reporter.extract_comparison_metrics()
     }
-    
+
     json_file = pair_output / 'metrics.json'
     with open(json_file, 'w') as f:
         json.dump(clean_for_json(metrics), f, indent=2)
@@ -3328,24 +3315,24 @@ def run_single_pair(args):
     """Run comparison for a single tumor-normal pair."""
     output_dir = Path(args.output)
     output_dir.mkdir(parents=True, exist_ok=True)
-    
+
     pair_name = f"{args.tumor}_{args.normal}"
-    
+
     print(f"\n{'='*80}")
     print(f"Comparing pair: {pair_name}")
     print(f"  Run 1: {args.run1} ({args.alias1})")
     print(f"  Run 2: {args.run2} ({args.alias2})")
     print(f"{'='*80}\n")
-    
+
     analyzer1, analysis1 = _analyze_run(args.run1, args.tumor, args.normal, args.alias1)
     analyzer2, analysis2 = _analyze_run(args.run2, args.tumor, args.normal, args.alias2)
-    
+
     _write_comparison_output(
         output_dir, pair_name, args.tumor, args.normal,
         analyzer1, analysis1, args.alias1,
         analyzer2, analysis2, args.alias2
     )
-    
+
     return 0
 
 
@@ -3354,12 +3341,12 @@ def run_batch_mode(args):
     # Load config
     with open(args.config, 'r') as f:
         config = yaml.safe_load(f)
-    
+
     output_dir = Path(args.output)
     output_dir.mkdir(parents=True, exist_ok=True)
     pairs_dir = output_dir / 'pairs'
     pairs_dir.mkdir(exist_ok=True)
-    
+
     # Check config format - support two styles
     if 'baseline' in config and 'runs' in config:
         # New format with baseline and runs
@@ -3374,13 +3361,13 @@ def run_batch_mode(args):
 def run_batch_mode_simple_format(args, config, output_dir, pairs_dir):
     """Process config with run1/run2 specified per pair."""
     pairs = config['pairs']
-    
+
     print(f"\n{'='*80}")
     print(f"BATCH COMPARISON MODE (Simple Format)")
     print(f"{'='*80}")
     print(f"Pairs to process: {len(pairs)}")
     print(f"{'='*80}\n")
-    
+
     completed = 0
     for pair_config in pairs:
         tumor_id = pair_config['tumor']
@@ -3388,16 +3375,16 @@ def run_batch_mode_simple_format(args, config, output_dir, pairs_dir):
         pair_name = f"{tumor_id}_{normal_id}"
         run1_path = Path(pair_config['run1'])
         run2_path = Path(pair_config['run2'])
-        
+
         # Extract metadata if present
         pair_metadata = pair_config.get('metadata', {})
-        
+
         completed += 1
-        
+
         print(f"\n[{completed}/{len(pairs)}] Processing: {pair_name}")
         print(f"  Run1: {run1_path}")
         print(f"  Run2: {run2_path}")
-        
+
         # Check if directories exist
         if not run1_path.exists():
             print(f"  Warning: {run1_path} not found, skipping")
@@ -3413,31 +3400,31 @@ def run_batch_mode_simple_format(args, config, output_dir, pairs_dir):
         # Check for global aliases first, then pair-specific, then defaults
         alias1 = pair_config.get('alias1') or config.get('alias_run1', 'Run1')
         alias2 = pair_config.get('alias2') or config.get('alias_run2', 'Run2')
-        
+
         # Try to extract version from path only if no alias specified at all
         if 'alias1' not in pair_config and 'alias_run1' not in config:
             if '070' in str(run1_path) or '0.7.0' in str(run1_path):
                 alias1 = 'SASH 0.7.0'
             elif '06' in str(run1_path) or 'older' in str(run1_path):
                 alias1 = 'SASH 0.6.X'
-        
+
         if 'alias2' not in pair_config and 'alias_run2' not in config:
             if '070' in str(run2_path) or '0.7.0' in str(run2_path):
                 alias2 = 'SASH 0.7.0'
             elif '06' in str(run2_path) or 'older' in str(run2_path):
                 alias2 = 'SASH 0.6.X'
-        
+
         try:
             analyzer1, analysis1 = _analyze_run(str(run1_path), tumor_id, normal_id, alias1)
             analyzer2, analysis2 = _analyze_run(str(run2_path), tumor_id, normal_id, alias2)
-            
+
             _write_comparison_output(
                 pair_output, pair_name, tumor_id, normal_id,
                 analyzer1, analysis1, alias1,
                 analyzer2, analysis2, alias2,
                 pair_metadata
             )
-            
+
         except Exception as e:
             print(f"  Error processing {pair_name}: {e}")
             import traceback
@@ -3459,27 +3446,27 @@ def run_batch_mode_new_format(args, config, output_dir, pairs_dir):
     baseline_id = config.get('baseline')
     if not baseline_id:
         raise ValueError("Config must specify 'baseline' run ID")
-    
+
     # Find baseline run
     baseline_run = None
     for run in config['runs']:
         if run['id'] == baseline_id:
             baseline_run = run
             break
-    
+
     if not baseline_run:
         raise ValueError(f"Baseline run '{baseline_id}' not found in config")
-    
+
     # Get other runs to compare against baseline
     comparison_runs = [r for r in config['runs'] if r['id'] != baseline_id]
-    
+
     if not comparison_runs:
         raise ValueError("No comparison runs found (need at least 2 runs total)")
-    
+
     # Process each pair
     total_pairs = len(config['pairs']) * len(comparison_runs)
     completed = 0
-    
+
     # Helper to pick a sensible alias for display: prefer first alias, then label, then id
     def _pick_alias(run_dict: dict) -> str:
         aliases = run_dict.get('aliases')
@@ -3495,46 +3482,46 @@ def run_batch_mode_new_format(args, config, output_dir, pairs_dir):
     print(f"Pairs to process: {len(config['pairs'])}")
     print(f"Total comparisons: {total_pairs}")
     print(f"{'='*80}\n")
-    
+
     for pair_config in config['pairs']:
         tumor_id = pair_config['tumor']
         normal_id = pair_config['normal']
         pair_name = f"{tumor_id}_{normal_id}"
         pair_metadata = pair_config.get('metadata', {})
-        
+
         for comp_run in comparison_runs:
             completed += 1
-            
+
             print(f"\n[{completed}/{total_pairs}] Processing: {pair_name}")
             print(f"  {baseline_run['label']} vs {comp_run['label']}")
-            
+
             pair_output = pairs_dir / pair_name
             pair_output.mkdir(exist_ok=True)
-            
+
             run1_path = Path(baseline_run['path']) / pair_name
             run2_path = Path(comp_run['path']) / pair_name
-            
+
             if not run1_path.exists():
                 print(f"  Warning: {run1_path} not found, skipping")
                 continue
             if not run2_path.exists():
                 print(f"  Warning: {run2_path} not found, skipping")
                 continue
-            
+
             alias1 = _pick_alias(baseline_run)
             alias2 = _pick_alias(comp_run)
-            
+
             try:
                 analyzer1, analysis1 = _analyze_run(str(run1_path), tumor_id, normal_id, alias1)
                 analyzer2, analysis2 = _analyze_run(str(run2_path), tumor_id, normal_id, alias2)
-                
+
                 _write_comparison_output(
                     pair_output, pair_name, tumor_id, normal_id,
                     analyzer1, analysis1, alias1,
                     analyzer2, analysis2, alias2,
                     pair_metadata
                 )
-                
+
             except Exception as e:
                 print(f"  Error processing {pair_name}: {e}")
                 continue

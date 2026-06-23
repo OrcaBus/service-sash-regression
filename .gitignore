@@ -16,3 +16,6 @@ cdk.out
 # IDE
 .idea
 .DS_Store
+
+# Local comparison workdir
+work/
