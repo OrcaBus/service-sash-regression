@@ -246,6 +246,53 @@ make invoke AWS_PROFILE=<profile> TESTDATA_CONFIG_S3_URI=s3://... RESULT_S3_PREF
 
 > **Note:** The CDK tests synthesize the Lambda image using Docker. If Docker is not running, `pnpm test` will fail with `Cannot connect to the Docker daemon`. Start Docker Desktop before running CDK tests locally.
 
+### Invoking the comparator in dev
+
+After deploying to dev (see [CDK Commands](#cdk-commands)), invoke the Lambda directly via the AWS CLI.
+
+#### 1. Find the function name
+
+CDK appends a hash to the logical resource name, so the name is not stable across deploys:
+
+```sh
+aws lambda list-functions --profile umccr-dev-pu --region ap-southeast-2 \
+  --query 'Functions[?contains(FunctionName,`SashRegression`)].FunctionName' \
+  --output text
+```
+
+#### 2. Check what config file the Lambda reads
+
+The testdata config S3 URI is set as an environment variable at deploy time:
+
+```sh
+aws lambda get-function-configuration \
+  --function-name <function-name> \
+  --profile umccr-dev-pu \
+  --query 'Environment.Variables.TESTDATA_CONFIG_S3_URI' \
+  --output text
+```
+
+Fetch the config to see what cases are available:
+
+```sh
+aws s3 cp <TESTDATA_CONFIG_S3_URI> -
+```
+
+#### 3. Invoke
+
+`case_name` must match the `metadata.case` field in the config YAML — not the tumor/normal library ID. Omit `case_name` to run all pairs.
+
+```sh
+aws lambda invoke \
+  --function-name <function-name> \
+  --payload '{"new_version":"0.7.0","baseline_version":"0.6.4","case_name":"SEQC-II-medium"}' \
+  --cli-binary-format raw-in-base64-out \
+  --profile umccr-dev-pu \
+  /tmp/response.json && cat /tmp/response.json
+```
+
+Results are written to the `RESULT_S3_PREFIX` path shown in the Lambda configuration.
+
 
 Glossary & References
 --------------------------------------------------------------------------------
