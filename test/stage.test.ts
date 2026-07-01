@@ -54,6 +54,34 @@ function applyNagSuppression(stack: Stack) {
         id: 'AwsSolutions-IAM5',
         reason: 'Lambda log group name is not known at synth time; wildcard is required',
       },
+      {
+        id: 'AwsSolutions-APIG1',
+        reason:
+          'SubmitterApi is an internal manual-trigger tool; Lambda CloudWatch logs are sufficient',
+      },
+      {
+        id: 'AwsSolutions-APIG2',
+        reason:
+          'SubmitterApi is an internal manual-trigger tool; input validation is handled in the Lambda handler',
+      },
+      {
+        id: 'AwsSolutions-APIG4',
+        reason:
+          'SubmitterApi is an internal tool invoked by authorised operators; no public auth required',
+      },
+      {
+        id: 'AwsSolutions-APIG6',
+        reason:
+          'SubmitterApi is an internal manual-trigger tool; Lambda CloudWatch logs are sufficient',
+      },
+      {
+        id: 'AwsSolutions-APIG3',
+        reason: 'SubmitterApi is an internal manual-trigger tool; WAF web ACL is not required',
+      },
+      {
+        id: 'AwsSolutions-COG4',
+        reason: 'SubmitterApi is an internal tool; Cognito user pool authorizer is not required',
+      },
     ],
     true
   );
