@@ -5,8 +5,7 @@ All AWS calls and inner comparator functions are mocked so no credentials or
 network access are required.
 """
 import os
-from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -46,6 +45,82 @@ def _make_run_comparison(output_dir_holder: list):
 
 
 class TestHandler:
+    def test_emits_compact_summary_and_final_log_line(self):
+        cmp_summary = {
+            "status": "PASS",
+            "critical_count": 0,
+            "critical_items": [],
+            "warning_count": 0,
+            "warning_items": [],
+            "metrics_impacted": False,
+        }
+        captured = []
+        with (
+            patch("comparator.lambdas.comparator.handler.load_config", return_value=_CONFIG),
+            patch("comparator.lambdas.comparator.handler.download_s3_dir"),
+            patch("comparator.lambdas.comparator.handler.check_schema", return_value=_SCHEMA_PASS),
+            patch("comparator.lambdas.comparator.handler.run_comparison", return_value=cmp_summary),
+            patch("comparator.lambdas.comparator.handler.upload_file"),
+            patch("comparator.lambdas.comparator.handler.logger.info") as mock_info,
+        ):
+            result = handler(
+                {"new_version": "0.7.0", "baseline_version": "0.6.4", "update_type": "minor"},
+                None,
+            )
+            captured = [c.args[0] for c in mock_info.call_args_list if c.args]
+
+        assert result["compact_summary"]["status"] == "PASS"
+        assert result["compact_summary"]["pass_count"] == 1
+        assert result["compact_summary"]["warn_count"] == 0
+        assert any("FINAL_RESULT" in msg for msg in captured)
+
+    def test_warn_status_when_metric_delta_below_threshold(self):
+        cmp_summary = {
+            "status": "WARN",
+            "critical_count": 0,
+            "critical_items": [],
+            "warning_count": 1,
+            "warning_items": ["purity_delta:0.0200"],
+            "metrics_impacted": False,
+        }
+        with (
+            patch("comparator.lambdas.comparator.handler.load_config", return_value=_CONFIG),
+            patch("comparator.lambdas.comparator.handler.download_s3_dir"),
+            patch("comparator.lambdas.comparator.handler.check_schema", return_value=_SCHEMA_PASS),
+            patch("comparator.lambdas.comparator.handler.run_comparison", return_value=cmp_summary),
+            patch("comparator.lambdas.comparator.handler.upload_file"),
+        ):
+            result = handler({"new_version": "0.7.0", "baseline_version": "0.6.4"}, None)
+
+        cs = result["compact_summary"]
+        assert cs["status"] == "WARN"
+        assert cs["warn_count"] == 1
+        assert cs["pass_count"] == 0
+        assert cs["warning_items"] == ["purity_delta:0.0200"]
+
+    def test_fail_status_when_key_files_changed(self):
+        cmp_summary = {
+            "status": "FAIL",
+            "critical_count": 1,
+            "critical_items": ["changed_key_files:purple_purity,somatic_bcftools"],
+            "warning_count": 0,
+            "warning_items": [],
+            "metrics_impacted": True,
+        }
+        with (
+            patch("comparator.lambdas.comparator.handler.load_config", return_value=_CONFIG),
+            patch("comparator.lambdas.comparator.handler.download_s3_dir"),
+            patch("comparator.lambdas.comparator.handler.check_schema", return_value=_SCHEMA_PASS),
+            patch("comparator.lambdas.comparator.handler.run_comparison", return_value=cmp_summary),
+            patch("comparator.lambdas.comparator.handler.upload_file"),
+        ):
+            result = handler({"new_version": "0.7.0", "baseline_version": "0.6.4"}, None)
+
+        cs = result["compact_summary"]
+        assert cs["status"] == "FAIL"
+        assert cs["fail_count"] == 1
+        assert "changed_key_files:purple_purity,somatic_bcftools" in cs["critical_items"]
+
     def test_returns_summary_for_successful_pair(self):
         captured = []
         with (
@@ -62,6 +137,9 @@ class TestHandler:
         assert result["all_schema_passed"] is True
         assert len(result["results"]) == 1
         assert result["results"][0]["comparison"] == _CMP_RESULT
+        assert "compact_summary" in result
+        assert "summary_s3_uri" in result["results"][0]
+        assert result["results"][0]["summary_s3_uri"].endswith("/data/summary.json")
 
     def test_skips_comparison_when_schema_fails(self):
         with (
@@ -115,3 +193,45 @@ class TestHandler:
                     {"new_version": "0.7.0", "baseline_version": "0.6.4", "case_name": "nonexistent"},
                     None,
                 )
+
+    def test_new_output_path_overrides_config_run2(self):
+        """Watcher can pass new_output_path directly, bypassing config run2."""
+        captured = []
+        with (
+            patch("comparator.lambdas.comparator.handler.load_config", return_value=_CONFIG),
+            patch("comparator.lambdas.comparator.handler.download_s3_dir"),
+            patch("comparator.lambdas.comparator.handler.check_schema", return_value=_SCHEMA_PASS),
+            patch("comparator.lambdas.comparator.handler.run_comparison", side_effect=_make_run_comparison(captured)),
+            patch("comparator.lambdas.comparator.handler.upload_file"),
+        ):
+            result = handler(
+                {
+                    "new_version": "0.7.0",
+                    "baseline_version": "0.6.4",
+                    "new_output_path": "s3://override/new/",
+                    "baseline_output_path": "s3://override/baseline/",
+                },
+                None,
+            )
+        assert result["all_schema_passed"] is True
+
+    def test_baseline_output_path_overrides_config_run1(self):
+        captured = []
+        with (
+            patch("comparator.lambdas.comparator.handler.load_config", return_value=_CONFIG),
+            patch("comparator.lambdas.comparator.handler.download_s3_dir") as mock_dl,
+            patch("comparator.lambdas.comparator.handler.check_schema", return_value=_SCHEMA_PASS),
+            patch("comparator.lambdas.comparator.handler.run_comparison", side_effect=_make_run_comparison(captured)),
+            patch("comparator.lambdas.comparator.handler.upload_file"),
+        ):
+            handler(
+                {
+                    "new_version": "0.7.0",
+                    "baseline_version": "0.6.4",
+                    "baseline_output_path": "s3://my-override/baseline/",
+                },
+                None,
+            )
+        # First download_s3_dir call should use the override path
+        first_call_uri = mock_dl.call_args_list[0][0][0]
+        assert first_call_uri == "s3://my-override/baseline/"

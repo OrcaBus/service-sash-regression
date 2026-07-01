@@ -1,6 +1,5 @@
 from pathlib import Path
 
-import pytest
 
 from comparator.schema_check import EXPECTED_FILES, check_schema
 

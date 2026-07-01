@@ -15,6 +15,21 @@ def _make_mock_result(returncode: int, stderr: str = "") -> MagicMock:
 
 
 class TestRunComparison:
+    def test_prefers_summary_json_when_present(self, tmp_path):
+        expected_summary = {"status": "PASS", "detected_severity": "minor", "critical_count": 0}
+
+        def fake_subprocess(cmd, **kwargs):
+            out_dir = Path(cmd[cmd.index("--output") + 1])
+            out_dir.mkdir(parents=True, exist_ok=True)
+            (out_dir / "summary.json").write_text(json.dumps(expected_summary))
+            (out_dir / "metrics.json").write_text(json.dumps({"status": "legacy"}))
+            return _make_mock_result(0)
+
+        with patch("comparator.comparison.subprocess.run", side_effect=fake_subprocess):
+            result = run_comparison(tmp_path / "r1", tmp_path / "r2", "L2301218", "L2301217", tmp_path / "out")
+
+        assert result == expected_summary
+
     def test_returns_metrics_json_on_success(self, tmp_path):
         expected = {"status": "ok", "matches": 5}
 
