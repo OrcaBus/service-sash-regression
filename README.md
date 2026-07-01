@@ -135,10 +135,16 @@ pnpm cdk-stateless deploy -e <stackname>
 Examples:
 ```sh
 # Deploy the toolchain pipeline stack (sets up CodePipeline in the bastion account)
-pnpm cdk-stateless deploy -e OrcaBusStatelessHelloWorldStack
+pnpm cdk-stateless deploy -e OrcaBusStatelessSashRegressionStack
 
 # Manually deploy the SashRegression stack to the beta (dev) environment
-pnpm cdk-stateless deploy SashRegressionStack -c deployMode=beta
+pnpm cdk-beta deploy SashRegressionStack
+
+# Manually deploy to gamma
+pnpm cdk-gamma deploy SashRegressionStack
+
+# Manually deploy to prod
+pnpm cdk-prod deploy SashRegressionStack
 ```
 
 ### Stacks
