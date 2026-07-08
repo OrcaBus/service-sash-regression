@@ -4,14 +4,14 @@ install:
 	pip install -r requirements-dev.txt
 
 test:
-	pytest tests/ --cov=comparator --cov=submitter --cov-report=term-missing
+	pytest tests/ --cov=comparator --cov=submitter --cov=watcher --cov-report=term-missing
 
 check:
-	ruff check comparator submitter tests
+	ruff check comparator submitter watcher tests
 
 fix:
-	ruff check --fix comparator submitter tests
-	ruff format comparator submitter tests
+	ruff check --fix comparator submitter watcher tests
+	ruff format comparator submitter watcher tests
 
 # Run comparator end-to-end against real S3 data.
 # Requires: AWS_PROFILE=umccr-dev-pu

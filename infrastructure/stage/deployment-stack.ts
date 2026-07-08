@@ -1,9 +1,10 @@
 import * as path from 'path';
 import { Construct } from 'constructs';
-import { DockerImageCode, DockerImageFunction, Function } from 'aws-cdk-lib/aws-lambda';
-import { aws_lambda, Duration, Size, Stack, StackProps } from 'aws-cdk-lib';
+import { DockerImageCode, DockerImageFunction, Function, IFunction } from 'aws-cdk-lib/aws-lambda';
+import { aws_lambda, CfnOutput, Duration, Size, Stack, StackProps } from 'aws-cdk-lib';
 import { LambdaRestApi } from 'aws-cdk-lib/aws-apigateway';
-import { EventBus } from 'aws-cdk-lib/aws-events';
+import { EventBus, IEventBus, Rule } from 'aws-cdk-lib/aws-events';
+import { LambdaFunction } from 'aws-cdk-lib/aws-events-targets';
 import { ManagedPolicy, PolicyStatement, Role, ServicePrincipal } from 'aws-cdk-lib/aws-iam';
 import {
   APP_ROOT,
@@ -110,12 +111,22 @@ export class SashRegressionStack extends Stack {
       })
     );
 
-    this.createComparatorFunction(testdataConfigS3Uri, resultS3Prefix);
+    const comparatorFn = this.createComparatorFunction(testdataConfigS3Uri, resultS3Prefix);
+
+    // Watcher: async-invoke Comparator on SUCCEEDED runs
+    this.lambdaRole.addToPolicy(
+      new PolicyStatement({
+        actions: ['lambda:InvokeFunction'],
+        resources: [comparatorFn.functionArn],
+      })
+    );
+
     this.createSubmitterFunction(wruDraftValidatorFunctionName);
+    this.createWatcherFunction(comparatorFn, mainBus);
   }
 
-  private createComparatorFunction(testdataConfigS3Uri: string, resultS3Prefix: string): void {
-    new DockerImageFunction(this, 'ComparatorFunction', {
+  private createComparatorFunction(testdataConfigS3Uri: string, resultS3Prefix: string): IFunction {
+    return new DockerImageFunction(this, 'ComparatorFunction', {
       code: DockerImageCode.fromImageAsset(path.join(APP_ROOT)),
       architecture: aws_lambda.Architecture.ARM_64,
       timeout: Duration.minutes(15),
@@ -148,9 +159,42 @@ export class SashRegressionStack extends Stack {
       },
     });
 
-    new LambdaRestApi(this, 'SubmitterApi', {
+    const submitterApi = new LambdaRestApi(this, 'SubmitterApi', {
       handler: submitterFn,
       proxy: true,
+    });
+
+    new CfnOutput(this, 'SubmitterApiUrl', {
+      value: submitterApi.url,
+      description:
+        'Submitter API Gateway endpoint URL (used by docs/operation/SOP/SR.1/generate-WRU-draft.sh)',
+    });
+  }
+
+  private createWatcherFunction(comparatorFn: IFunction, mainBus: IEventBus): void {
+    const watcherFn = new DockerImageFunction(this, 'WatcherFunction', {
+      code: DockerImageCode.fromImageAsset(path.join(APP_ROOT), {
+        cmd: ['watcher.lambdas.watcher.handler.handler'],
+      }),
+      architecture: aws_lambda.Architecture.ARM_64,
+      timeout: Duration.minutes(5),
+      memorySize: 512,
+      role: this.lambdaRole,
+      environment: {
+        COMPARATOR_FUNCTION_NAME: comparatorFn.functionName,
+      },
+    });
+
+    new Rule(this, 'WatcherRule', {
+      eventBus: mainBus,
+      eventPattern: {
+        source: ['orcabus.workflowmanager'],
+        detailType: ['WorkflowRunStateChange'],
+        detail: {
+          workflowRunName: [{ prefix: 'umccr_tested_' }],
+        },
+      },
+      targets: [new LambdaFunction(watcherFn)],
     });
   }
 }
