@@ -24,24 +24,33 @@ export interface SashRegressionStackProps extends StackProps {
 }
 
 export class SashRegressionStack extends Stack {
-  private readonly lambdaRole: Role;
-
   constructor(scope: Construct, id: string, props: SashRegressionStackProps) {
     super(scope, id, props);
 
     const { testdataConfigS3Uri, resultS3Prefix, wruDraftValidatorFunctionName } =
       getStageConstants(props.stage as StageName);
 
-    this.lambdaRole = new Role(this, 'LambdaRole', {
+    const mainBus = EventBus.fromEventBusName(this, 'OrcaBusMain', EVENT_BUS_NAME);
+
+    // Each Lambda gets its own execution role. A single role shared across all three,
+    // with a policy statement referencing one function's ARN, creates a circular
+    // CloudFormation dependency once another function using that same role exists.
+    const comparatorFn = this.createComparatorFunction(testdataConfigS3Uri, resultS3Prefix);
+    this.createSubmitterFunction(wruDraftValidatorFunctionName, mainBus);
+    this.createWatcherFunction(comparatorFn, mainBus);
+  }
+
+  private createComparatorFunction(testdataConfigS3Uri: string, resultS3Prefix: string): IFunction {
+    const role = new Role(this, 'ComparatorRole', {
       assumedBy: new ServicePrincipal('lambda.amazonaws.com'),
-      description: 'Lambda execution role for SashRegression',
+      description: 'Lambda execution role for SashRegression Comparator',
     });
-    this.lambdaRole.addManagedPolicy(
+    role.addManagedPolicy(
       ManagedPolicy.fromAwsManagedPolicyName('service-role/AWSLambdaBasicExecutionRole')
     );
 
     // Read sash outputs from pipeline cache buckets and project-data buckets (e.g. project-wgs-accreditation)
-    this.lambdaRole.addToPolicy(
+    role.addToPolicy(
       new PolicyStatement({
         actions: ['s3:GetObject', 's3:ListBucket'],
         resources: [
@@ -54,7 +63,7 @@ export class SashRegressionStack extends Stack {
     );
 
     // Read baseline config from testdata bucket (read-only — never write here)
-    this.lambdaRole.addToPolicy(
+    role.addToPolicy(
       new PolicyStatement({
         actions: ['s3:GetObject', 's3:ListBucket'],
         resources: [`arn:aws:s3:::${TESTDATA_BUCKET}`, `arn:aws:s3:::${TESTDATA_BUCKET}/*`],
@@ -62,15 +71,38 @@ export class SashRegressionStack extends Stack {
     );
 
     // Read config and write results to umccr-research-dev (all stages)
-    this.lambdaRole.addToPolicy(
+    role.addToPolicy(
       new PolicyStatement({
         actions: ['s3:GetObject', 's3:PutObject', 's3:ListBucket'],
         resources: [`arn:aws:s3:::${RESULTS_BUCKET}`, `arn:aws:s3:::${RESULTS_BUCKET}/*`],
       })
     );
 
-    // Submitter: read OrcaBus token from Secrets Manager
-    this.lambdaRole.addToPolicy(
+    return new DockerImageFunction(this, 'ComparatorFunction', {
+      code: DockerImageCode.fromImageAsset(path.join(APP_ROOT)),
+      architecture: aws_lambda.Architecture.ARM_64,
+      timeout: Duration.minutes(15),
+      memorySize: 4096,
+      ephemeralStorageSize: Size.gibibytes(10),
+      role,
+      environment: {
+        TESTDATA_CONFIG_S3_URI: testdataConfigS3Uri,
+        RESULT_S3_PREFIX: resultS3Prefix,
+      },
+    });
+  }
+
+  private createSubmitterFunction(wruDraftValidatorFunctionName: string, mainBus: IEventBus): void {
+    const role = new Role(this, 'SubmitterRole', {
+      assumedBy: new ServicePrincipal('lambda.amazonaws.com'),
+      description: 'Lambda execution role for SashRegression Submitter',
+    });
+    role.addManagedPolicy(
+      ManagedPolicy.fromAwsManagedPolicyName('service-role/AWSLambdaBasicExecutionRole')
+    );
+
+    // Read OrcaBus token from Secrets Manager
+    role.addToPolicy(
       new PolicyStatement({
         actions: ['secretsmanager:GetSecretValue'],
         resources: [
@@ -79,8 +111,8 @@ export class SashRegressionStack extends Stack {
       })
     );
 
-    // Submitter: read hostname from SSM
-    this.lambdaRole.addToPolicy(
+    // Read hostname from SSM
+    role.addToPolicy(
       new PolicyStatement({
         actions: ['ssm:GetParameter'],
         resources: [
@@ -89,58 +121,27 @@ export class SashRegressionStack extends Stack {
       })
     );
 
-    // Submitter: invoke WruDraftValidator
+    // Invoke WruDraftValidator
     const wruFn = Function.fromFunctionName(
       this,
       'WruDraftValidatorFn',
       wruDraftValidatorFunctionName
     );
-    this.lambdaRole.addToPolicy(
+    role.addToPolicy(
       new PolicyStatement({
         actions: ['lambda:InvokeFunction'],
         resources: [wruFn.functionArn],
       })
     );
 
-    // Submitter: emit events to OrcaBusMain
-    const mainBus = EventBus.fromEventBusName(this, 'OrcaBusMain', EVENT_BUS_NAME);
-    this.lambdaRole.addToPolicy(
+    // Emit events to OrcaBusMain
+    role.addToPolicy(
       new PolicyStatement({
         actions: ['events:PutEvents'],
         resources: [mainBus.eventBusArn],
       })
     );
 
-    const comparatorFn = this.createComparatorFunction(testdataConfigS3Uri, resultS3Prefix);
-
-    // Watcher: async-invoke Comparator on SUCCEEDED runs
-    this.lambdaRole.addToPolicy(
-      new PolicyStatement({
-        actions: ['lambda:InvokeFunction'],
-        resources: [comparatorFn.functionArn],
-      })
-    );
-
-    this.createSubmitterFunction(wruDraftValidatorFunctionName);
-    this.createWatcherFunction(comparatorFn, mainBus);
-  }
-
-  private createComparatorFunction(testdataConfigS3Uri: string, resultS3Prefix: string): IFunction {
-    return new DockerImageFunction(this, 'ComparatorFunction', {
-      code: DockerImageCode.fromImageAsset(path.join(APP_ROOT)),
-      architecture: aws_lambda.Architecture.ARM_64,
-      timeout: Duration.minutes(15),
-      memorySize: 4096,
-      ephemeralStorageSize: Size.gibibytes(10),
-      role: this.lambdaRole,
-      environment: {
-        TESTDATA_CONFIG_S3_URI: testdataConfigS3Uri,
-        RESULT_S3_PREFIX: resultS3Prefix,
-      },
-    });
-  }
-
-  private createSubmitterFunction(wruDraftValidatorFunctionName: string): void {
     const submitterFn = new DockerImageFunction(this, 'SubmitterFunction', {
       code: DockerImageCode.fromImageAsset(path.join(APP_ROOT), {
         cmd: ['submitter.lambdas.submitter.handler.handler'],
@@ -148,7 +149,7 @@ export class SashRegressionStack extends Stack {
       architecture: aws_lambda.Architecture.ARM_64,
       timeout: Duration.minutes(5),
       memorySize: 512,
-      role: this.lambdaRole,
+      role,
       environment: {
         ORCABUS_TOKEN_SECRET_ID,
         HOSTNAME_SSM_PARAMETER_NAME,
@@ -172,6 +173,22 @@ export class SashRegressionStack extends Stack {
   }
 
   private createWatcherFunction(comparatorFn: IFunction, mainBus: IEventBus): void {
+    const role = new Role(this, 'WatcherRole', {
+      assumedBy: new ServicePrincipal('lambda.amazonaws.com'),
+      description: 'Lambda execution role for SashRegression Watcher',
+    });
+    role.addManagedPolicy(
+      ManagedPolicy.fromAwsManagedPolicyName('service-role/AWSLambdaBasicExecutionRole')
+    );
+
+    // Async-invoke Comparator on SUCCEEDED runs
+    role.addToPolicy(
+      new PolicyStatement({
+        actions: ['lambda:InvokeFunction'],
+        resources: [comparatorFn.functionArn],
+      })
+    );
+
     const watcherFn = new DockerImageFunction(this, 'WatcherFunction', {
       code: DockerImageCode.fromImageAsset(path.join(APP_ROOT), {
         cmd: ['watcher.lambdas.watcher.handler.handler'],
@@ -179,7 +196,7 @@ export class SashRegressionStack extends Stack {
       architecture: aws_lambda.Architecture.ARM_64,
       timeout: Duration.minutes(5),
       memorySize: 512,
-      role: this.lambdaRole,
+      role,
       environment: {
         COMPARATOR_FUNCTION_NAME: comparatorFn.functionName,
       },
