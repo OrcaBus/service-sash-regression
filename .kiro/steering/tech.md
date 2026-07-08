@@ -7,19 +7,20 @@
 
 ## Infrastructure
 
-- **AWS CDK v2** (`aws-cdk-lib ^2.260.0`) with TypeScript
+- **AWS CDK v2** (`aws-cdk-lib 2.260.0`) with TypeScript
+- **`aws-cdk` CLI `^2.1129.0`** (devDependency — bumped from 2.1006.0 to resolve cloud assembly schema version mismatch)
 - **`@orcabus/platform-cdk-constructs` 1.2.6** — internal shared constructs (accounts, event bus, CodePipeline pattern)
-- **`@aws-cdk/aws-lambda-python-alpha`** — Python Lambda packaging helper
-- **cdk-nag** — CDK security/compliance checks in tests
-- Both Lambdas share a **single Docker image** built from `app/`. Submitter overrides `CMD` at deploy time.
+- **`@aws-cdk/aws-lambda-python-alpha` 2.260.0-alpha.0** — Python Lambda packaging helper
+- All three Lambdas share a **single Docker image** built from `app/`. Submitter and Watcher override `CMD` at deploy time.
 
 ## Key AWS Services Used
 
 - **AWS Lambda** ARM64, Docker image runtime
   - Comparator: 4096 MB, 10 GiB ephemeral, 15 min timeout
   - Submitter: 512 MB, 5 min timeout, fronted by API Gateway
+  - Watcher: 512 MB, 5 min timeout, triggered by EventBridge rule
 - **Amazon S3** — source sash outputs (read), testdata config (read), comparison results (write)
-- **Amazon EventBridge** — bus `OrcaBusMain`, event `SashRegressionRunSubmitted`
+- **Amazon EventBridge** — bus `OrcaBusMain`; Watcher consumes `WorkflowRunStateChange` events; Submitter publishes `SashRegressionRunSubmitted`
 - **AWS Secrets Manager** — OrcaBus JWT token (`orcabus/token-service-jwt`)
 - **AWS SSM Parameter Store** — OrcaBus hostname (`/hosted_zone/umccr/name`)
 - **AWS API Gateway** — REST proxy in front of Submitter Lambda

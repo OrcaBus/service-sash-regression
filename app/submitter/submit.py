@@ -33,6 +33,8 @@ ORCABUS_TOKEN_SECRET_ID = os.environ["ORCABUS_TOKEN_SECRET_ID"]
 HOSTNAME_SSM_PARAMETER_NAME = os.environ["HOSTNAME_SSM_PARAMETER_NAME"]
 WRU_VALIDATOR_LAMBDA_NAME = os.environ["WRU_VALIDATOR_LAMBDA_NAME"]
 EVENTS_BUS_NAME = os.environ["EVENTS_BUS_NAME"]
+ICA_PROJECT_ID = os.environ["ICA_PROJECT_ID"]
+PIPELINE_CACHE_BUCKET = os.environ["PIPELINE_CACHE_BUCKET"]
 
 _token_cache: str | None = None
 _hostname_cache: str | None = None
@@ -122,11 +124,76 @@ def _find_existing_run(code_version: str, tumor_library_id: str, normal_library_
     return None
 
 
+def _get_payload_data(portal_run_id: str) -> dict:
+    data = _get(
+        "api/v1/payload",
+        "workflow",
+        params={"state__workflowRun__portalRunId": portal_run_id},
+    )
+    results = data.get("results", [])
+    return results[0]["data"] if results else {}
+
+
+def _find_prior_sash_inputs(tumor_library_id: str, normal_library_id: str) -> dict:
+    """
+    Find tags/inputs from the most recent SUCCEEDED sash run (any codeVersion) for this
+    exact library pair, to seed a new DRAFT's payload.data.
+
+    sash's inputs (dragenSomaticDir/dragenGermlineDir/oncoanalyserDnaDir — upstream DNA
+    pipeline outputs) don't change between the sash versions under regression test, so we
+    reuse them from whatever prior sash run already exists for these libraries rather than
+    looking them up from dragen-wgts-dna/oncoanalyser-wgts-dna directly.
+    """
+    data = _get(
+        "api/v1/workflowrun",
+        "workflow",
+        params={
+            "workflow__name": WORKFLOW_NAME,
+            "libraries__libraryId": tumor_library_id,
+            "ordering": "-id",
+        },
+    )
+    for run in data.get("results", []):
+        if run.get("currentState", {}).get("status") != "SUCCEEDED":
+            continue
+        payload_data = _get_payload_data(run["portalRunId"])
+        tags = payload_data.get("tags", {})
+        if tags.get("tumorLibraryId") == tumor_library_id and tags.get("libraryId") == normal_library_id:
+            return {"tags": tags, "inputs": payload_data.get("inputs", {})}
+
+    raise ValueError(
+        f"No prior SUCCEEDED sash run found for tumor={tumor_library_id} normal={normal_library_id}; "
+        "cannot determine dragenSomaticDir/dragenGermlineDir/oncoanalyserDnaDir inputs. "
+        "Run sash manually for this library pair at least once before regression-testing it."
+    )
+
+
+def _build_engine_parameters(portal_run_id: str, pipeline_id: str) -> dict:
+    """
+    Build sash's engineParameters for a new DRAFT run.
+
+    Unlike tags/inputs (reused from a prior sash run — see _find_prior_sash_inputs),
+    cacheUri/logsUri/outputUri are scoped to this run's own portal_run_id and must be
+    built fresh: reusing a prior run's URIs would make ICA write this run's outputs into
+    the prior run's S3 prefix instead of its own.
+    """
+    base = f"s3://{PIPELINE_CACHE_BUCKET}/byob-icav2/development"
+    return {
+        "cacheUri": f"{base}/cache/sash/{portal_run_id}/",
+        "logsUri": f"{base}/logs/sash/{portal_run_id}/",
+        "outputUri": f"{base}/analysis/sash/{portal_run_id}/",
+        "projectId": ICA_PROJECT_ID,
+        "pipelineId": pipeline_id,
+        "analysisStorageSize": "SMALL",
+    }
+
+
 def _build_draft_payload(
     workflow: dict,
     libraries: list[dict],
     portal_run_id: str,
     workflow_run_name: str,
+    data: dict,
 ) -> dict:
     return {
         "status": "DRAFT",
@@ -135,7 +202,7 @@ def _build_draft_payload(
         "workflowRunName": workflow_run_name,
         "portalRunId": portal_run_id,
         "libraries": libraries,
-        "payload": {"version": PAYLOAD_VERSION, "data": {}},
+        "payload": {"version": PAYLOAD_VERSION, "data": data},
     }
 
 
@@ -207,9 +274,13 @@ def submit_sash_run(
         _get_library(tumor_library_id),
         _get_library(normal_library_id),
     ]
+    draft_data = _find_prior_sash_inputs(tumor_library_id, normal_library_id)
     portal_run_id = _create_portal_run_id()
     run_name = _workflow_run_name(new_version, baseline_version, portal_run_id)
-    payload = _build_draft_payload(workflow, libraries, portal_run_id, run_name)
+    draft_data["engineParameters"] = _build_engine_parameters(
+        portal_run_id, workflow.get("executionEnginePipelineId", "")
+    )
+    payload = _build_draft_payload(workflow, libraries, portal_run_id, run_name, draft_data)
 
     logger.info(f"Submitting: portal_run_id={portal_run_id} run_name={run_name}")
     _invoke_wru_validator(payload)

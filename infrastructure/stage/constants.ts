@@ -37,10 +37,29 @@ const WRU_VALIDATOR_FUNCTION_NAME: Record<StageName, string> = {
   PROD: 'OrcaBusBeta-WruValidatorS-WruDraftValidatorCE0E33B-qPMdDh7awGuX', // pragma: allowlist secret
 };
 
+/**
+ * ICA project + pipeline cache bucket for sash DRAFT engineParameters, per stage.
+ * Verified against a real SUCCEEDED sash run in BETA/dev (2026-07-08). GAMMA/PROD values
+ * are placeholders pending confirmation — see service-sash-regression#5.
+ */
+const ICA_PROJECT_ID: Record<StageName, string> = {
+  BETA: 'ea19a3f5-ec7c-4940-a474-c31cd91dbad4',
+  GAMMA: 'ea19a3f5-ec7c-4940-a474-c31cd91dbad4',
+  PROD: 'ea19a3f5-ec7c-4940-a474-c31cd91dbad4',
+};
+
+const PIPELINE_CACHE_BUCKET: Record<StageName, string> = {
+  BETA: 'pipeline-dev-cache-503977275616-ap-southeast-2',
+  GAMMA: 'pipeline-dev-cache-503977275616-ap-southeast-2',
+  PROD: 'pipeline-dev-cache-503977275616-ap-southeast-2',
+};
+
 export const getStageConstants = (stage: StageName) => {
   return {
     testdataConfigS3Uri: `s3://${RESULTS_BUCKET}/${CONFIG_KEY}`,
     resultS3Prefix: `s3://${RESULTS_BUCKET}/${RESULT_KEY_PREFIX}`,
     wruDraftValidatorFunctionName: WRU_VALIDATOR_FUNCTION_NAME[stage],
+    icaProjectId: ICA_PROJECT_ID[stage],
+    pipelineCacheBucket: PIPELINE_CACHE_BUCKET[stage],
   };
 };

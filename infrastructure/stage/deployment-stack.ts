@@ -27,8 +27,13 @@ export class SashRegressionStack extends Stack {
   constructor(scope: Construct, id: string, props: SashRegressionStackProps) {
     super(scope, id, props);
 
-    const { testdataConfigS3Uri, resultS3Prefix, wruDraftValidatorFunctionName } =
-      getStageConstants(props.stage as StageName);
+    const {
+      testdataConfigS3Uri,
+      resultS3Prefix,
+      wruDraftValidatorFunctionName,
+      icaProjectId,
+      pipelineCacheBucket,
+    } = getStageConstants(props.stage as StageName);
 
     const mainBus = EventBus.fromEventBusName(this, 'OrcaBusMain', EVENT_BUS_NAME);
 
@@ -36,7 +41,12 @@ export class SashRegressionStack extends Stack {
     // with a policy statement referencing one function's ARN, creates a circular
     // CloudFormation dependency once another function using that same role exists.
     const comparatorFn = this.createComparatorFunction(testdataConfigS3Uri, resultS3Prefix);
-    this.createSubmitterFunction(wruDraftValidatorFunctionName, mainBus);
+    this.createSubmitterFunction(
+      wruDraftValidatorFunctionName,
+      mainBus,
+      icaProjectId,
+      pipelineCacheBucket
+    );
     this.createWatcherFunction(comparatorFn, mainBus);
   }
 
@@ -92,7 +102,12 @@ export class SashRegressionStack extends Stack {
     });
   }
 
-  private createSubmitterFunction(wruDraftValidatorFunctionName: string, mainBus: IEventBus): void {
+  private createSubmitterFunction(
+    wruDraftValidatorFunctionName: string,
+    mainBus: IEventBus,
+    icaProjectId: string,
+    pipelineCacheBucket: string
+  ): void {
     const role = new Role(this, 'SubmitterRole', {
       assumedBy: new ServicePrincipal('lambda.amazonaws.com'),
       description: 'Lambda execution role for SashRegression Submitter',
@@ -157,6 +172,8 @@ export class SashRegressionStack extends Stack {
         EVENTS_BUS_NAME: EVENT_BUS_NAME,
         TESTDATA_TUMOR_LIBRARY_ID,
         TESTDATA_NORMAL_LIBRARY_ID,
+        ICA_PROJECT_ID: icaProjectId,
+        PIPELINE_CACHE_BUCKET: pipelineCacheBucket,
       },
     });
 

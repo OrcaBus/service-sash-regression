@@ -10,6 +10,8 @@ ENV = {
     "HOSTNAME_SSM_PARAMETER_NAME": "/hosted_zone/umccr/name",
     "WRU_VALIDATOR_LAMBDA_NAME": "WruDraftValidator",
     "EVENTS_BUS_NAME": "OrcaBusMain",
+    "ICA_PROJECT_ID": "ica-project-fake",
+    "PIPELINE_CACHE_BUCKET": "pipeline-fake-cache-000000000000-ap-southeast-2",
 }
 
 MOCK_WORKFLOW = {
@@ -18,6 +20,7 @@ MOCK_WORKFLOW = {
     "version": "0.7.0",
     "codeVersion": "abc1234",
     "executionEngine": "ICA",
+    "executionEnginePipelineId": "pipeline-guid-fake",
 }
 
 MOCK_TUMOR_LIB = {"libraryId": "L2301218", "orcabusId": "lib.tumor111"}
@@ -25,6 +28,33 @@ MOCK_NORMAL_LIB = {"libraryId": "L2301217", "orcabusId": "lib.normal222"}
 
 TUMOR_ID = "L2301218"
 NORMAL_ID = "L2301217"
+
+MOCK_PRIOR_RUN = {
+    "portalRunId": "20260101prior",
+    "workflowRunName": "umccr--manual--sash--0-6-4--20260101prior",
+    "currentState": {"status": "SUCCEEDED"},
+}
+
+MOCK_PRIOR_PAYLOAD_DATA = {
+    "tags": {"libraryId": NORMAL_ID, "tumorLibraryId": TUMOR_ID},
+    "inputs": {
+        "groupId": f"{TUMOR_ID}__{NORMAL_ID}",
+        "dragenSomaticDir": "s3://pipeline-cache/dragen-wgts-dna/somatic/",
+        "dragenGermlineDir": "s3://pipeline-cache/dragen-wgts-dna/germline/",
+        "oncoanalyserDnaDir": "s3://pipeline-cache/oncoanalyser-wgts-dna/",
+    },
+    # engineParameters on the PRIOR run — scoped to the prior run's own portalRunId.
+    # A new submission must build its own, not copy this one (see
+    # test_engine_parameters_are_freshly_built_not_reused).
+    "engineParameters": {
+        "cacheUri": "s3://pipeline-fake-cache-000000000000-ap-southeast-2/byob-icav2/development/cache/sash/20260101prior/",
+        "logsUri": "s3://pipeline-fake-cache-000000000000-ap-southeast-2/byob-icav2/development/logs/sash/20260101prior/",
+        "outputUri": "s3://pipeline-fake-cache-000000000000-ap-southeast-2/byob-icav2/development/analysis/sash/20260101prior/",
+        "projectId": "ica-project-fake",
+        "pipelineId": "old-pipeline-guid",
+        "analysisStorageSize": "SMALL",
+    },
+}
 
 
 @pytest.fixture(autouse=True)
@@ -60,23 +90,35 @@ def mock_boto3():
         yield {"sm": sm, "ssm": ssm, "lambda": lam, "events": events}
 
 
-@pytest.fixture()
-def mock_requests(no_existing_run=True):
-    with patch("submitter.submit.requests") as m:
-        def get_side_effect(url, params=None, **kw):
-            resp = MagicMock()
-            resp.raise_for_status.return_value = None
-            if "workflowrun" in url:
-                resp.json.return_value = {"results": []}  # no existing run by default
-            elif "metadata" in url:
-                lib_id = (params or {}).get("libraryId", "")
-                lib = MOCK_TUMOR_LIB if lib_id == TUMOR_ID else MOCK_NORMAL_LIB
-                resp.json.return_value = {"results": [lib]}
-            else:  # /api/v1/workflow
-                resp.json.return_value = {"results": [MOCK_WORKFLOW]}
-            return resp
+def _default_get_side_effect(url, params=None, **kw):
+    """
+    Shared routing: workflowrun queries are either the umccr_tested_ idempotency check
+    (has workflow__codeVersion) or the prior-succeeded-run lookup for draft inputs
+    (has libraries__libraryId instead) — distinguish by params, like the real API calls do.
+    """
+    resp = MagicMock()
+    resp.raise_for_status.return_value = None
+    params = params or {}
+    if "workflowrun" in url:
+        if "workflow__codeVersion" in params:
+            resp.json.return_value = {"results": []}  # no existing umccr_tested_ run
+        else:
+            resp.json.return_value = {"results": [MOCK_PRIOR_RUN]}
+    elif "payload" in url:
+        resp.json.return_value = {"results": [{"data": MOCK_PRIOR_PAYLOAD_DATA}]}
+    elif "metadata" in url:
+        lib_id = params.get("libraryId", "")
+        lib = MOCK_TUMOR_LIB if lib_id == TUMOR_ID else MOCK_NORMAL_LIB
+        resp.json.return_value = {"results": [lib]}
+    else:  # /api/v1/workflow
+        resp.json.return_value = {"results": [MOCK_WORKFLOW]}
+    return resp
 
-        m.get.side_effect = get_side_effect
+
+@pytest.fixture()
+def mock_requests():
+    with patch("submitter.submit.requests") as m:
+        m.get.side_effect = _default_get_side_effect
         yield m
 
 
@@ -109,6 +151,70 @@ def test_draft_payload_shape(mock_boto3, mock_requests):
     assert payload["workflow"]["orcabusId"] == "wfl.abc123"
     lib_ids = {lib["libraryId"] for lib in payload["libraries"]}
     assert lib_ids == {TUMOR_ID, NORMAL_ID}
+
+
+def test_draft_payload_data_reuses_prior_sash_inputs(mock_boto3, mock_requests):
+    """
+    payload.data must not be {} — workflow-manager's Django model rejects an empty dict
+    with 'This field cannot be blank.'. Inputs are copied from the prior SUCCEEDED sash
+    run for the same library pair.
+    """
+    from submitter.submit import submit_sash_run
+
+    submit_sash_run(TUMOR_ID, NORMAL_ID, "0.7.0", "0.6.4")
+    lam = mock_boto3["lambda"]
+    payload = json.loads(lam.invoke.call_args[1]["Payload"])
+    data = payload["payload"]["data"]
+    assert data
+    assert data["inputs"]["dragenSomaticDir"] == MOCK_PRIOR_PAYLOAD_DATA["inputs"]["dragenSomaticDir"]
+    assert data["tags"]["tumorLibraryId"] == TUMOR_ID
+
+
+def test_engine_parameters_are_freshly_built_not_reused(mock_boto3, mock_requests):
+    """
+    engineParameters must be built fresh for the new portal_run_id, not copied from the
+    prior run's payload — reusing them would make ICA write this run's outputs into the
+    prior run's S3 prefix.
+    """
+    from submitter.submit import submit_sash_run
+
+    result = submit_sash_run(TUMOR_ID, NORMAL_ID, "0.7.0", "0.6.4")
+    lam = mock_boto3["lambda"]
+    payload = json.loads(lam.invoke.call_args[1]["Payload"])
+    engine_params = payload["payload"]["data"]["engineParameters"]
+
+    new_portal_run_id = result["portal_run_id"]
+    assert new_portal_run_id in engine_params["outputUri"]
+    assert new_portal_run_id in engine_params["cacheUri"]
+    assert new_portal_run_id in engine_params["logsUri"]
+    assert "20260101prior" not in engine_params["outputUri"]
+
+    assert engine_params["pipelineId"] == MOCK_WORKFLOW["executionEnginePipelineId"]
+    assert engine_params["projectId"] == "ica-project-fake"
+    assert engine_params["outputUri"].startswith("s3://pipeline-fake-cache-000000000000-ap-southeast-2/")
+
+
+def test_no_prior_sash_run_raises(mock_boto3, mock_requests):
+    from submitter.submit import submit_sash_run
+
+    def no_prior_run(url, params=None, **kw):
+        resp = MagicMock()
+        resp.raise_for_status.return_value = None
+        params = params or {}
+        if "workflowrun" in url:
+            resp.json.return_value = {"results": []}
+        elif "metadata" in url:
+            lib_id = params.get("libraryId", "")
+            lib = MOCK_TUMOR_LIB if lib_id == TUMOR_ID else MOCK_NORMAL_LIB
+            resp.json.return_value = {"results": [lib]}
+        else:
+            resp.json.return_value = {"results": [MOCK_WORKFLOW]}
+        return resp
+
+    mock_requests.get.side_effect = no_prior_run
+
+    with pytest.raises(ValueError, match="No prior SUCCEEDED sash run found"):
+        submit_sash_run(TUMOR_ID, NORMAL_ID, "0.7.0", "0.6.4")
 
 
 def test_submitted_event_includes_baseline(mock_boto3, mock_requests):
@@ -196,10 +302,16 @@ def test_different_libraries_not_matched(mock_boto3, mock_requests):
     def get_with_existing(url, params=None, **kw):
         resp = MagicMock()
         resp.raise_for_status.return_value = None
+        params = params or {}
         if "workflowrun" in url:
-            resp.json.return_value = {"results": [existing_run]}
+            if "workflow__codeVersion" in params:
+                resp.json.return_value = {"results": [existing_run]}
+            else:
+                resp.json.return_value = {"results": [MOCK_PRIOR_RUN]}
+        elif "payload" in url:
+            resp.json.return_value = {"results": [{"data": MOCK_PRIOR_PAYLOAD_DATA}]}
         elif "metadata" in url:
-            lib_id = (params or {}).get("libraryId", "")
+            lib_id = params.get("libraryId", "")
             lib = MOCK_TUMOR_LIB if lib_id == TUMOR_ID else MOCK_NORMAL_LIB
             resp.json.return_value = {"results": [lib]}
         else:
