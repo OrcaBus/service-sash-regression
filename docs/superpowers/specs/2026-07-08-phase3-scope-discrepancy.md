@@ -1,7 +1,7 @@
-# Phase 3 scope discrepancy — to reconcile
+# Phase 3 scope discrepancy — reconciled
 
 Date: 2026-07-08
-Status: unresolved, parked for later
+Status: **resolved 2026-07-13** — see [Resolution](#resolution-2026-07-13) below
 
 ## What happened
 
@@ -61,3 +61,38 @@ architecture overhaul that was never scoped with Florian the way Phases 1–2 we
 
 No changes made to `.kiro/specs/sash-regression-completion/design.md` as part of this note
 — it's left as-is pending a decision.
+
+---
+
+## Resolution (2026-07-13)
+
+Decision: **Phase 3 stays Publisher-only**, matching the Obsidian plan and the 3-4 day estimate.
+
+- **Scope**: `.kiro/specs/sash-regression-completion/design.md` and `requirements.md` rewritten
+  to Publisher-only (Comparator emits `SashRegressionComparisonCompleted`, new
+  `PublisherFunction` posts to GitHub _and_ Slack). The fan-out (`PairComparatorFunction` +
+  `AggregatorFunction`), the comparison-engine refactor, and the `cdk.out/` git-hygiene fix are
+  dropped from this phase entirely — no driving requirement exists yet (today's suite is one
+  pair), and none of it was scoped with Florian. Revisit as a separate phase if the test suite
+  grows.
+- **Event contract**: merged — Obsidian's `{newVersion, baselineVersion, portalRunId, outcome,
+resultS3Prefix, metricSummary}` is the base (non-negotiable per the Daily note), extended with
+  per-status pair counts and critical/warning items inside `metricSummary` (useful for Slack/
+  GitHub message formatting, doesn't conflict with the base fields). Superseded: the `.kiro`
+  rewrite's `status`/`jobId`/`criticalItems`-only shape, and the original superpowers draft's
+  `status`/`resultS3Uri` shape.
+- **GitHub posting**: added — new `PublisherFunction` posts to both GitHub (PR comment) and
+  Slack, independently (one failing must not block the other). Open question carried into the
+  design: how the Publisher locates _which_ sash PR to comment on for a given `newVersion` — not
+  specified anywhere yet, needs a decision with Florian before this part of the implementation.
+- **Security hardening** (token TTL, `secrets.token_hex`, S3 path-traversal fix, WRU error-body
+  checks): filed as an independent fix, not bundled into Phase 3. Draft issue:
+  `docs/superpowers/specs/2026-07-13-security-hardening-issue-draft.md` (not yet posted to
+  GitHub — awaiting review).
+- Obsidian doc written: [[Sash Regression Service - Phase 3]], now the source of truth alongside
+  the rewritten `.kiro` spec — the two agree as of this resolution.
+- The removed fan-out/Aggregator/parser-refactor design content is not discarded — full detail
+  preserved in `docs/superpowers/specs/2026-07-13-phase4-fanout-backlog.md` for whenever that
+  becomes real scope.
+
+All four open items above are resolved; no outstanding items remain on this note.
