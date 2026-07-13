@@ -222,27 +222,50 @@ def build_github_comment(detail: dict) -> str:
     return "\n\n".join(lines)
 
 
-def post_to_github(token: str, body: str) -> None:
+def find_release_pr(token: str, repo: str, new_version: str) -> int:
     """
-    Posts a PR comment on the sash release PR whose head matches `newVersion`.
+    Look up the open sash release PR for `new_version` by head-branch convention.
+
+    Preconditions:
+      - repo is "umccr/sash"
+      - token has `repo` scope (read)
+    Postconditions:
+      - GETs /repos/{repo}/pulls?head=umccr:release/{new_version}&state=open
+      - Returns the PR number if exactly one match is found
+      - Raises LookupError if zero or more than one open PR matches (surfaces as a Lambda
+        error rather than silently posting to the wrong PR or dropping the comment)
+    """
+
+
+def post_to_github(token: str, repo: str, pr_number: int, body: str) -> None:
+    """
+    Posts `body` as an issue/PR comment on the given PR number.
 
     Preconditions:
       - GITHUB_REPO env var set to "umccr/sash"
       - token has `repo` scope (PR comment write)
     Postconditions:
-      - Finds the open sash PR tagged with newVersion (by branch-name or tag convention,
-        TBD against actual sash release workflow — see Open Questions)
-      - POSTs body as an issue/PR comment via the GitHub REST API
+      - POSTs body to /repos/{repo}/issues/{pr_number}/comments
       - Raises RuntimeError on non-2xx response
     """
 ```
 
-**Open question, not yet resolved** — how the Publisher locates _which_ sash PR to comment on.
-The Obsidian plan says "post result as GitHub PR comment," but neither this design nor prior
-ones defines the lookup (branch name convention? release tag? explicit portalRunId → PR mapping
-stored somewhere?). This needs a decision with Florian before implementation — sized as part of
-the 3-4 day estimate, not a blocker to writing this design, but a blocker to finishing the
-`github.py` implementation.
+**PR lookup — working assumption, confirm with Florian before shipping**: every sash release PR
+follows a fixed convention — head branch `release/<version>`, e.g. PR
+[#39](https://github.com/umccr/sash/pull/39) for `release/0.7.0`. Verified against every release
+in git history (0.6.0, 0.6.1, 0.6.2, 0.6.4, 0.7.0) — no exceptions found. `find_release_pr()`
+above queries `GET /repos/umccr/sash/pulls?head=umccr:release/{newVersion}&state=open` and takes
+the single match; no new mapping table or coordination with another system is needed.
+
+Two things still need Florian's confirmation before this ships, not before it's designed:
+
+1. Is the `release/<version>` branch convention guaranteed for every future release, or could a
+   release ship without one?
+2. Can the regression comparison finish _after_ the release PR is already merged/closed (a race
+   between the sash test run and the human merging it)? If so, `find_release_pr()`'s
+   `state=open` filter would find zero matches. Decide then whether the Publisher should fall
+   back to commenting on the merge commit, or skip the GitHub post and rely on Slack only for
+   that case.
 
 ### GitHub token
 

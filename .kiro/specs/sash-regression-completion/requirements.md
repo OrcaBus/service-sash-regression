@@ -81,18 +81,26 @@ PR, so that the release decision-maker sees regression status without leaving Gi
 1. WHEN the PublisherFunction receives a `SashRegressionComparisonCompleted` event, THE
    PublisherFunction SHALL retrieve a GitHub token from Secrets Manager using
    `GITHUB_TOKEN_SECRET_ID`.
-2. THE PublisherFunction SHALL post a comment to the sash PR corresponding to `newVersion`,
-   containing the outcome, per-status pair counts, critical items (if present), and a link to
-   the results in S3.
-3. WHEN the GitHub API call returns a non-2xx HTTP status, THE PublisherFunction SHALL raise an
+2. THE PublisherFunction SHALL locate the open sash PR for `newVersion` by querying
+   `GET /repos/umccr/sash/pulls?head=umccr:release/{newVersion}&state=open` (verified
+   convention across every sash release in git history: 0.6.0, 0.6.1, 0.6.2, 0.6.4, 0.7.0 —
+   see PR [#39](https://github.com/umccr/sash/pull/39) for `release/0.7.0`).
+3. IF zero or more than one open PR matches, THEN THE PublisherFunction SHALL raise an error
+   rather than posting to an ambiguous or wrong PR.
+4. THE PublisherFunction SHALL post a comment to the resolved PR, containing the outcome,
+   per-status pair counts, critical items (if present), and a link to the results in S3.
+5. WHEN the GitHub API call returns a non-2xx HTTP status, THE PublisherFunction SHALL raise an
    error, causing the Lambda to fail and trigger EventBridge's at-least-once retry.
-4. A Slack delivery failure SHALL NOT prevent the GitHub post from being attempted, and vice
+6. A Slack delivery failure SHALL NOT prevent the GitHub post from being attempted, and vice
    versa — both SHALL be attempted independently within the same invocation.
 
-**Open question (must be resolved before implementation):** how the PublisherFunction locates
-the sash PR to comment on for a given `newVersion` — by branch-name convention, release tag, or
-an explicit `portalRunId` → PR mapping. Not specified in any prior design; needs a decision with
-Florian.
+**Confirm with Florian before shipping (not before implementation — the convention above is
+verified from git history and safe to build against):**
+
+1. Is `release/<version>` guaranteed for every future release?
+2. Can the comparison finish after the PR is already merged/closed? If so, requirement 3's
+   "zero matches" case will fire on every such run — decide then whether to fall back to a
+   merge-commit comment or skip GitHub and rely on Slack only.
 
 ---
 
