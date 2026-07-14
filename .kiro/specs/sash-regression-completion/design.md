@@ -38,7 +38,7 @@ sequenceDiagram
     Comp->>S3: upload run_summary.json (shared exec_id across pairs)
     Comp->>EB: PutEvents SashRegressionComparisonCompleted
     EB-->>Pub: EventBridge rule triggers PublisherFunction
-    Pub->>GH: POST PR comment / commit status (outcome + link)
+    Pub->>GH: POST new issue (outcome + link)
     Pub->>Slack: POST message (outcome + link)
 ```
 
@@ -161,7 +161,7 @@ New app module, structured like the existing `watcher/`:
 app/publisher/
   __init__.py
   slack.py                          # Slack message building + posting
-  github.py                         # GitHub PR comment building + posting
+  github.py                         # GitHub issue building + posting
   lambdas/publisher/handler.py      # EventBridge entrypoint
 ```
 
@@ -174,7 +174,8 @@ GITHUB_TOKEN_SECRET_ID = os.environ["GITHUB_TOKEN_SECRET_ID"]
 def handler(event: dict, context) -> None:
     detail = event["detail"]
     post_to_slack(_get_webhook_url(SLACK_WEBHOOK_SECRET_ID), build_slack_message(detail))
-    post_to_github(_get_github_token(GITHUB_TOKEN_SECRET_ID), build_github_comment(detail))
+    title, body = build_github_issue(detail)
+    post_to_github(_get_github_token(GITHUB_TOKEN_SECRET_ID), GITHUB_REPO, title, body)
 ```
 
 Both posts run independently — a Slack failure must not block the GitHub post or vice versa
@@ -206,71 +207,51 @@ def post_to_slack(webhook_url: str, message: dict) -> None:
     resp.raise_for_status()
 ```
 
-**`github.py`** (new — the piece missing from both prior designs):
+**`github.py`** (new — the piece missing from both prior designs). Posts a **new GitHub issue**
+per comparison run rather than a PR comment — this sidesteps PR lookup entirely: no search, no
+"is it still open" race condition, nothing that can fail to find a match. The release branch is
+referenced by a direct link built from the naming convention (`release/<version>`), assumed to
+always hold — not looked up via the API:
 
 ```python
-def build_github_comment(detail: dict) -> str:
+def build_github_issue(detail: dict) -> tuple[str, str]:
+    """Returns (title, body) for the GitHub issue."""
     emoji = STATUS_EMOJI.get(detail["outcome"], "❓")
     m = detail["metricSummary"]
+    title = f"sash regression: {detail['newVersion']} vs {detail['baselineVersion']} — {detail['outcome']}"
+    branch_url = f"https://github.com/umccr/sash/tree/release/{detail['newVersion']}"
     lines = [
-        f"## {emoji} sash regression: `{detail['newVersion']}` vs `{detail['baselineVersion']}` — **{detail['outcome']}**",
+        f"{emoji} **{detail['outcome']}** — [`release/{detail['newVersion']}`]({branch_url})",
         f"Pairs: {m['passCount']} pass / {m['warnCount']} warn / {m['failCount']} fail / {m['manualCheckCount']} manual_check",
     ]
     if m.get("criticalItems"):
         lines.append("**Critical:** " + ", ".join(m["criticalItems"]))
     lines.append(f"[Results]({_s3_console_url(detail['resultS3Prefix'])})")
-    return "\n\n".join(lines)
+    return title, "\n\n".join(lines)
 
 
-def find_release_pr(token: str, repo: str, new_version: str) -> int:
+def post_to_github(token: str, repo: str, title: str, body: str) -> None:
     """
-    Look up the open sash release PR for `new_version` by head-branch convention.
+    Creates a new GitHub issue with the given title and body.
 
     Preconditions:
       - repo is "umccr/sash"
-      - token has `repo` scope (read)
+      - token has `repo` scope (issue write)
     Postconditions:
-      - GETs /repos/{repo}/pulls?head=umccr:release/{new_version}&state=open
-      - Returns the PR number if exactly one match is found
-      - Raises LookupError if zero or more than one open PR matches (surfaces as a Lambda
-        error rather than silently posting to the wrong PR or dropping the comment)
-    """
-
-
-def post_to_github(token: str, repo: str, pr_number: int, body: str) -> None:
-    """
-    Posts `body` as an issue/PR comment on the given PR number.
-
-    Preconditions:
-      - GITHUB_REPO env var set to "umccr/sash"
-      - token has `repo` scope (PR comment write)
-    Postconditions:
-      - POSTs body to /repos/{repo}/issues/{pr_number}/comments
+      - POSTs to /repos/{repo}/issues with {"title": title, "body": body}
       - Raises RuntimeError on non-2xx response
     """
 ```
 
-**PR lookup — working assumption, confirm with Florian before shipping**: every sash release PR
-follows a fixed convention — head branch `release/<version>`, e.g. PR
-[#39](https://github.com/umccr/sash/pull/39) for `release/0.7.0`. Verified against every release
-in git history (0.6.0, 0.6.1, 0.6.2, 0.6.4, 0.7.0) — no exceptions found. `find_release_pr()`
-above queries `GET /repos/umccr/sash/pulls?head=umccr:release/{newVersion}&state=open` and takes
-the single match; no new mapping table or coordination with another system is needed.
-
-Two things still need Florian's confirmation before this ships, not before it's designed:
-
-1. Is the `release/<version>` branch convention guaranteed for every future release, or could a
-   release ship without one?
-2. Can the regression comparison finish _after_ the release PR is already merged/closed (a race
-   between the sash test run and the human merging it)? If so, `find_release_pr()`'s
-   `state=open` filter would find zero matches. Decide then whether the Publisher should fall
-   back to commenting on the merge commit, or skip the GitHub post and rely on Slack only for
-   that case.
+**Assumption, not verified via API call**: `release/<version>` branch naming holds for every
+sash release (verified from git history — 0.6.0, 0.6.1, 0.6.2, 0.6.4, 0.7.0, no exceptions — but
+not re-checked at runtime). If a future release ever doesn't use that branch name, the linked URL
+in the issue simply 404s; it doesn't block issue creation or block the Publisher.
 
 ### GitHub token
 
 New secret `sash-regression/github-token` in Secrets Manager (fine-grained PAT or GitHub App
-token, scoped to `umccr/sash` PR-comment write), same lifecycle as `ORCABUS_TOKEN_SECRET_ID` —
+token, scoped to `umccr/sash` issue write), same lifecycle as `ORCABUS_TOKEN_SECRET_ID` —
 created and populated manually post-deploy, referenced by ARN in IAM.
 
 ### Slack delivery mechanism (unchanged from the approved 2026-07-08 design)
@@ -350,7 +331,7 @@ app/
 ├── publisher/
 │   ├── lambdas/publisher/handler.py   # NEW — EventBridge trigger
 │   ├── slack.py                       # NEW — Slack formatting + delivery
-│   └── github.py                      # NEW — GitHub PR comment formatting + delivery
+│   └── github.py                      # NEW — GitHub issue formatting + delivery
 ├── submitter/                         # unchanged in this phase
 ├── watcher/                           # unchanged in this phase
 └── tests/
@@ -370,8 +351,9 @@ app/
   Simplest implementation: wrap each post in try/except, log both outcomes, and re-raise a
   combined error if either failed, so EventBridge's default Lambda-target retry policy still
   applies.
-- **GitHub post failure**: same treatment. A missing/expired token or an unresolvable PR surfaces
-  as a Lambda error metric.
+- **GitHub post failure**: same treatment. A missing/expired token surfaces as a Lambda error
+  metric. There's no PR-lookup step to fail — issue creation only depends on the token being
+  valid and the repo being reachable.
 
 ---
 
@@ -386,9 +368,9 @@ app/
     critical/warning item formatting and S3 console URL conversion
   - `post_to_slack` call args (mock `requests.post`)
 - `test_publisher_github.py`:
-  - `build_github_comment` output for each outcome
-  - `post_to_github` call args (mock the GitHub API client), including the PR-lookup path once
-    the open question above is resolved
+  - `build_github_issue` title/body output for each outcome, including the `release/<version>`
+    branch link
+  - `post_to_github` call args (mock the GitHub API client), raises on non-2xx response
 - `test_publisher_handler.py`:
   - both Slack and GitHub posts attempted even if one raises; combined error surfaced
 
@@ -409,10 +391,8 @@ fix, not part of Publisher work.
 
 ## Dependencies
 
-No new runtime dependencies beyond `requests` (already used by the Watcher/Submitter pattern) and
-a GitHub REST client (either `requests` directly against `api.github.com`, or `PyGithub` if the
-PR-lookup logic turns out to need more than a couple of endpoint calls — decide during
-implementation).
+No new runtime dependencies beyond `requests` (already used by the Watcher/Submitter pattern) —
+`POST /repos/{repo}/issues` is a single endpoint call, no GitHub SDK needed.
 
 New Secrets Manager secrets (Slack webhook URL, GitHub token) must be created manually before
 deploying the Publisher stack. Placeholder secrets can be used for initial deployment; the

@@ -81,10 +81,15 @@ resultS3Prefix, metricSummary}` is the base (non-negotiable per the Daily note),
   GitHub message formatting, doesn't conflict with the base fields). Superseded: the `.kiro`
   rewrite's `status`/`jobId`/`criticalItems`-only shape, and the original superpowers draft's
   `status`/`resultS3Uri` shape.
-- **GitHub posting**: added — new `PublisherFunction` posts to both GitHub (PR comment) and
-  Slack, independently (one failing must not block the other). Open question carried into the
-  design: how the Publisher locates _which_ sash PR to comment on for a given `newVersion` — not
-  specified anywhere yet, needs a decision with Florian before this part of the implementation.
+- **GitHub posting**: added — new `PublisherFunction` posts to both GitHub and Slack,
+  independently (one failing must not block the other). Originally designed as a PR comment,
+  which needed a PR-lookup mechanism; that lookup was resolved from git history
+  (`release/<version>` head-branch convention holds across every sash release, 0.6.0–0.7.0, no
+  exceptions) but still needed Florian's confirmation on two edge cases before shipping. **Later
+  simplified further (2026-07-13, same day)**: switched from a PR comment to posting a **new
+  GitHub issue** per run instead. This removes the PR-lookup step and its race condition
+  entirely — every run creates an issue regardless of release-branch/PR state — so there's no
+  longer anything to confirm with Florian on this piece.
 - **Security hardening** (token TTL, `secrets.token_hex`, S3 path-traversal fix, WRU error-body
   checks): filed as an independent fix, not bundled into Phase 3. Draft issue:
   `docs/superpowers/specs/2026-07-13-security-hardening-issue-draft.md` (not yet posted to
