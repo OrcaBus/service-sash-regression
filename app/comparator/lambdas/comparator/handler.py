@@ -48,8 +48,6 @@ def _derive_pair_compact_status(pair_result: dict) -> dict:
             "status": "FAIL",
             "critical_count": 1,
             "critical_items": ["schema_check_failed"],
-            "warning_count": 0,
-            "warning_items": [],
             "metrics_impacted": True,
         }
 
@@ -59,8 +57,6 @@ def _derive_pair_compact_status(pair_result: dict) -> dict:
             "status": "FAIL",
             "critical_count": 1,
             "critical_items": ["comparison_missing"],
-            "warning_count": 0,
-            "warning_items": [],
             "metrics_impacted": True,
         }
 
@@ -70,8 +66,6 @@ def _derive_pair_compact_status(pair_result: dict) -> dict:
             "status": comparison.get("status", "FAIL"),
             "critical_count": int(comparison.get("critical_count", 0)),
             "critical_items": comparison.get("critical_items", []),
-            "warning_count": int(comparison.get("warning_count", 0)),
-            "warning_items": comparison.get("warning_items", []),
             "metrics_impacted": bool(comparison.get("metrics_impacted", False)),
         }
 
@@ -88,8 +82,6 @@ def _derive_pair_compact_status(pair_result: dict) -> dict:
             "status": "FAIL",
             "critical_count": 1,
             "critical_items": [f"missing_key_files:{missing_total}"],
-            "warning_count": 0,
-            "warning_items": [],
             "metrics_impacted": True,
         }
     if different > 0:
@@ -97,16 +89,12 @@ def _derive_pair_compact_status(pair_result: dict) -> dict:
             "status": "FAIL",
             "critical_count": 1,
             "critical_items": [f"changed_key_files:{different}"],
-            "warning_count": 0,
-            "warning_items": [],
             "metrics_impacted": True,
         }
     return {
         "status": "PASS",
         "critical_count": 0,
         "critical_items": [],
-        "warning_count": 0,
-        "warning_items": [],
         "metrics_impacted": False,
     }
 
@@ -167,10 +155,13 @@ def _run_pair(pair: dict, tmp_path: Path, new_version: str, baseline_version: st
 
 
 def _build_compact_summary(results: list, declared_update_type: str) -> dict:
-    """Aggregate pair-level statuses into one compact summary."""
+    """Aggregate pair-level statuses into one compact summary.
+
+    Pair status is one of PASS / FAIL / MANUAL_CHECK — there is no WARN band, so the run rolls up
+    to FAIL if any pair failed, then MANUAL_CHECK, then PASS. See docs/comparison-thresholds.md.
+    """
     pair_compact = [_derive_pair_compact_status(result) for result in results]
     pass_count = sum(1 for result in pair_compact if result["status"] == "PASS")
-    warn_count = sum(1 for result in pair_compact if result["status"] == "WARN")
     fail_count = sum(1 for result in pair_compact if result["status"] == "FAIL")
     manual_check_count = sum(1 for result in pair_compact if result["status"] == "MANUAL_CHECK")
 
@@ -178,8 +169,6 @@ def _build_compact_summary(results: list, declared_update_type: str) -> dict:
         status = "FAIL"
     elif manual_check_count > 0:
         status = "MANUAL_CHECK"
-    elif warn_count > 0:
-        status = "WARN"
     else:
         status = "PASS"
 
@@ -187,22 +176,15 @@ def _build_compact_summary(results: list, declared_update_type: str) -> dict:
     for result in pair_compact:
         critical_items.extend(result.get("critical_items", []))
 
-    warning_items = []
-    for result in pair_compact:
-        warning_items.extend(result.get("warning_items", []))
-
     return {
         "status": status,
         "declared_update_type": declared_update_type or None,
         "total_pairs": len(pair_compact),
         "pass_count": pass_count,
-        "warn_count": warn_count,
         "fail_count": fail_count,
         "manual_check_count": manual_check_count,
         "critical_count": sum(result["critical_count"] for result in pair_compact),
         "critical_items": critical_items[:8],
-        "warning_count": sum(result.get("warning_count", 0) for result in pair_compact),
-        "warning_items": warning_items[:8],
         "metrics_impacted": any(result["metrics_impacted"] for result in pair_compact),
     }
 

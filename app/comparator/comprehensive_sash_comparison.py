@@ -57,6 +57,10 @@ try:
 except ImportError:
     HAS_CYVCF2 = False
 
+# Any purity/ploidy/TMB/MSI delta at or above this is treated as a real difference (FAIL), not
+# floating-point noise. See docs/comparison-thresholds.md.
+NUMERIC_DELTA_EPSILON = 1e-6
+
 
 # ---------------------------------------------------------------------------
 # Utility functions for cleaner pandas-based parsing
@@ -3322,10 +3326,14 @@ def _build_compact_summary(
     metadata: dict,
     comparison_metrics: dict
 ) -> dict:
-    """Build compact summary artifact intended for Lambda final status logging."""
+    """Build compact summary artifact intended for Lambda final status logging.
+
+    No WARN band: any numeric metric delta beyond floating-point noise (>= NUMERIC_DELTA_EPSILON)
+    is critical. A bug-fix claim needs to hold up under manual NATA review, not a tolerance band —
+    see docs/comparison-thresholds.md.
+    """
     file_comparison = comparison_metrics.get('file_comparison', {})
     critical_items = []
-    warning_items = []
 
     missing_total = (
         int(file_comparison.get('missing_run1', 0))
@@ -3348,33 +3356,24 @@ def _build_compact_summary(
     for metric_name in ('purity', 'ploidy'):
         v1 = _safe_float(run1_purple.get(metric_name))
         v2 = _safe_float(run2_purple.get(metric_name))
-        if v1 is None or v2 is None or v1 == v2:
+        if v1 is None or v2 is None:
             continue
         delta = abs(v2 - v1)
-        if delta >= 0.05:
-            critical_items.append(f"{metric_name}_delta:{delta:.4f}")
-        else:
-            warning_items.append(f"{metric_name}_delta:{delta:.4f}")
+        if delta >= NUMERIC_DELTA_EPSILON:
+            critical_items.append(f"{metric_name}_delta:{delta:.6f}")
 
     run1_multiqc = comparison_metrics.get('multiqc', {}).get('run1')
     run2_multiqc = comparison_metrics.get('multiqc', {}).get('run2')
     for token in ('tmb', 'msi'):
         m1 = _extract_numeric_by_token(run1_multiqc, token)
         m2 = _extract_numeric_by_token(run2_multiqc, token)
-        if m1 is None or m2 is None or m1 == m2:
+        if m1 is None or m2 is None:
             continue
         delta = abs(m2 - m1)
-        if delta >= 0.05:
-            critical_items.append(f"{token}_delta:{delta:.4f}")
-        else:
-            warning_items.append(f"{token}_delta:{delta:.4f}")
+        if delta >= NUMERIC_DELTA_EPSILON:
+            critical_items.append(f"{token}_delta:{delta:.6f}")
 
-    if critical_items:
-        status = 'FAIL'
-    elif warning_items:
-        status = 'WARN'
-    else:
-        status = 'PASS'
+    status = 'FAIL' if critical_items else 'PASS'
 
     return {
         'pair': pair_name,
@@ -3389,8 +3388,6 @@ def _build_compact_summary(
         },
         'critical_count': len(critical_items),
         'critical_items': critical_items,
-        'warning_count': len(warning_items),
-        'warning_items': warning_items,
         'metrics_impacted': bool(critical_items),
     }
 
