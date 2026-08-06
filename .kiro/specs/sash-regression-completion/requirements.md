@@ -21,7 +21,8 @@ tracked separately.
   that run, used as the S3 prefix for the run-level summary.
 - **RunSummary**: The aggregate JSON object (`run_summary.json`) covering all pairs processed in
   one Comparator invocation.
-- **Outcome**: The comparison result for a run: `PASS`, `WARN`, `FAIL`, or `MANUAL_CHECK`.
+- **Outcome**: The comparison result for a run: `PASS`, `FAIL`, or `MANUAL_CHECK`. There is no
+  `WARN` band — see `docs/comparison-thresholds.md`.
 - **OrcaBusMain**: The EventBridge event bus used by the OrcaBus platform.
 
 ---
@@ -42,8 +43,8 @@ finishes, so that downstream consumers (Publisher) know a result is ready withou
 3. WHEN the RunSummary is uploaded, THE ComparatorFunction SHALL emit a
    `SashRegressionComparisonCompleted` event to OrcaBusMain with source
    `sash-regression.comparator`, containing `newVersion`, `baselineVersion`, `portalRunId`,
-   `outcome`, `resultS3Prefix`, and `metricSummary` (pass/warn/fail/manual-check counts plus
-   critical/warning items).
+   `outcome`, `resultS3Prefix`, and `metricSummary` (pass/fail/manual-check counts plus
+   critical items).
 4. IF `put_events` raises, THEN THE ComparatorFunction SHALL let the exception propagate — S3
    writes have already completed, so only the notification is lost, and the Lambda invocation
    fails visibly in CloudWatch.
@@ -60,11 +61,11 @@ completes, so that I know immediately whether the new sash version passes or fai
 1. WHEN the PublisherFunction receives a `SashRegressionComparisonCompleted` event, THE
    PublisherFunction SHALL retrieve the Slack Incoming Webhook URL from Secrets Manager using
    `SLACK_WEBHOOK_SECRET_ID`.
-2. THE PublisherFunction SHALL map `outcome` to emoji: `PASS` → ✅, `WARN` → ⚠️, `FAIL` → ❌,
+2. THE PublisherFunction SHALL map `outcome` to emoji: `PASS` → ✅, `FAIL` → ❌,
    `MANUAL_CHECK` → 🔎.
-3. THE PublisherFunction SHALL notify Slack on every completion (PASS/WARN/FAIL/MANUAL_CHECK),
+3. THE PublisherFunction SHALL notify Slack on every completion (PASS/FAIL/MANUAL_CHECK),
    not only failures.
-4. THE Slack message SHALL include the outcome, per-status pair counts, critical/warning items
+4. THE Slack message SHALL include the outcome, per-status pair counts, critical items
    (if present), and a link to the results in S3.
 5. WHEN the Slack webhook POST returns a non-2xx HTTP status, THE PublisherFunction SHALL raise
    an error, causing the Lambda to fail and trigger EventBridge's at-least-once retry.

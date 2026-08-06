@@ -36,8 +36,8 @@ satisfies.
 
 - [ ] 5. Publisher: Slack delivery
 
-  - `build_slack_message(detail)`: map `outcome` to emoji (`PASS`→✅, `WARN`→⚠️, `FAIL`→❌,
-    `MANUAL_CHECK`→🔎); include outcome, per-status pair counts, critical/warning items (if
+  - `build_slack_message(detail)`: map `outcome` to emoji (`PASS`→✅, `FAIL`→❌,
+    `MANUAL_CHECK`→🔎); include outcome, per-status pair counts, critical items (if
     present), S3 results link
   - `post_to_slack(webhook_url, message)`: POST via `requests`, raise on non-2xx
   - _Requirements: 2.1, 2.2, 2.3, 2.4, 2.5_
@@ -62,8 +62,8 @@ satisfies.
 
 - [ ] 8. Publisher tests
 
-  - `test_publisher_slack.py`: `build_slack_message` output for each of the four outcomes
-    including critical/warning item formatting and S3 console URL conversion; `post_to_slack`
+  - `test_publisher_slack.py`: `build_slack_message` output for each of the three outcomes
+    including critical item formatting and S3 console URL conversion; `post_to_slack`
     call args (mock `requests.post`)
   - `test_publisher_github.py`: `build_github_issue` title/body for each outcome including the
     `release/<version>` branch link; `post_to_github` call args (mock the GitHub API client),

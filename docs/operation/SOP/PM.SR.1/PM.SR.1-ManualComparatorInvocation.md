@@ -15,7 +15,7 @@
 
 ## Introduction
 
-The Comparator Lambda compares `sash` pipeline outputs between a new version and a baseline version for one or all configured test cases. It downloads sash output directories from S3, runs a schema check and a comprehensive comparison, uploads results to S3, and returns a compact PASS/WARN/FAIL summary.
+The Comparator Lambda compares `sash` pipeline outputs between a new version and a baseline version for one or all configured test cases. It downloads sash output directories from S3, runs a schema check and a comprehensive comparison, uploads results to S3, and returns a compact PASS/FAIL/MANUAL_CHECK summary.
 
 This SOP covers manually invoking the Comparator Lambda — either against the deployed Lambda in AWS, or locally via Python without Docker.
 
@@ -97,9 +97,10 @@ The Lambda response is a compact summary:
   "total_pairs": 1,
   "pass_count": 1,
   "fail_count": 0,
+  "manual_check_count": 0,
+  "critical_count": 0,
   "critical_items": [],
-  "warning_items": [],
-  "metrics_impacted": []
+  "metrics_impacted": false
 }
 ```
 
@@ -143,7 +144,7 @@ print(json.dumps(handler({'new_version':'0.7.0','baseline_version':'0.6.4','case
 
 ## Confirmation
 
-A successful invocation returns `"status": "PASS"` or `"WARN"` in the Lambda response and writes result files to the `RESULT_S3_PREFIX` path. Check the CloudWatch log group for `FINAL_RESULT` log lines if the invocation fails or returns unexpected status.
+A successful invocation returns `"status": "PASS"` in the Lambda response and writes result files to the `RESULT_S3_PREFIX` path. `FAIL` means a real difference was detected (there is no tolerance band — see [`docs/comparison-thresholds.md`](../../../comparison-thresholds.md)); `MANUAL_CHECK` means the comparison could not decide on its own. Check the CloudWatch log group for `FINAL_RESULT` log lines if the invocation fails or returns unexpected status.
 
 ```sh
 # Tail the most recent log stream

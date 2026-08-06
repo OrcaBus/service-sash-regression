@@ -76,7 +76,7 @@ graph TD
 ### `SashRegressionComparisonCompleted` (new)
 
 Base fields per the agreed Obsidian plan (`Daily/2026-07-11.md`), extended with per-status
-counts and critical/warning items so the Publisher can build a richer Slack/GitHub message
+counts and critical items so the Publisher can build a richer Slack/GitHub message
 without a second S3 read.
 
 ```typescript
@@ -86,16 +86,14 @@ interface SashRegressionComparisonCompletedDetail {
   newVersion: string; // e.g. "0.7.0"
   baselineVersion: string; // e.g. "0.6.4"
   portalRunId: string; // ties back to the sash run that triggered this comparison
-  outcome: 'PASS' | 'WARN' | 'FAIL' | 'MANUAL_CHECK';
+  outcome: 'PASS' | 'FAIL' | 'MANUAL_CHECK';
   resultS3Prefix: string; // s3://umccr-research-dev/sash-regression/<new>-vs-<baseline>/<execId>/
   metricSummary: {
     totalPairs: number;
     passCount: number;
-    warnCount: number;
     failCount: number;
     manualCheckCount: number;
     criticalItems: string[]; // up to 8 items
-    warningItems: string[];
   };
 }
 ```
@@ -103,6 +101,13 @@ interface SashRegressionComparisonCompletedDetail {
 Field-name note: this supersedes both the `.kiro` rewrite's `status`/`jobId`/`criticalItems`-only
 shape and the earlier superpowers draft's `status`/`resultS3Uri` shape — `outcome` and
 `portalRunId` are non-negotiable per the Obsidian plan; `metricSummary.*` is the extension.
+
+**2026-08-07 — `WARN` removed.** This design originally carried a four-outcome enum with
+`warnCount` and `warningItems`. The Comparator's threshold policy changed after the design was
+written: there is no longer a tolerance band, so any real difference is a `FAIL`. The Comparator
+can no longer emit `WARN` and no longer produces `warning_count`/`warning_items`, so the enum and
+those two `metricSummary` fields are gone from this contract. Rationale and the code map:
+`docs/comparison-thresholds.md`.
 
 ### Shared `exec_id` per comparison run (unchanged from prior design)
 
@@ -134,11 +139,9 @@ def _emit_completed_event(new_version, baseline_version, portal_run_id, run_summ
             "metricSummary": {
                 "totalPairs": run_summary["total_pairs"],
                 "passCount": run_summary["pass_count"],
-                "warnCount": run_summary["warn_count"],
                 "failCount": run_summary["fail_count"],
                 "manualCheckCount": run_summary["manual_check_count"],
                 "criticalItems": run_summary["critical_items"],
-                "warningItems": run_summary["warning_items"],
             },
         }),
         "EventBusName": EVENTS_BUS_NAME,
@@ -185,20 +188,18 @@ Both posts run independently — a Slack failure must not block the GitHub post 
 the merged event contract):
 
 ```python
-STATUS_EMOJI = {"PASS": "✅", "WARN": "⚠️", "FAIL": "❌", "MANUAL_CHECK": "🔎"}
+STATUS_EMOJI = {"PASS": "✅", "FAIL": "❌", "MANUAL_CHECK": "🔎"}
 
 def build_slack_message(detail: dict) -> dict:
     emoji = STATUS_EMOJI.get(detail["outcome"], "❓")
     m = detail["metricSummary"]
     lines = [
         f"{emoji} *sash regression: {detail['newVersion']} vs {detail['baselineVersion']}* — {detail['outcome']}",
-        f"Pairs: {m['passCount']} pass / {m['warnCount']} warn / "
+        f"Pairs: {m['passCount']} pass / "
         f"{m['failCount']} fail / {m['manualCheckCount']} manual_check",
     ]
     if m.get("criticalItems"):
         lines.append(f"Critical: {', '.join(m['criticalItems'])}")
-    if m.get("warningItems"):
-        lines.append(f"Warnings: {', '.join(m['warningItems'])}")
     lines.append(f"Results: {_s3_console_url(detail['resultS3Prefix'])}")
     return {"text": "\n".join(lines)}
 
@@ -222,7 +223,7 @@ def build_github_issue(detail: dict) -> tuple[str, str]:
     branch_url = f"https://github.com/umccr/sash/tree/release/{detail['newVersion']}"
     lines = [
         f"{emoji} **{detail['outcome']}** — [`release/{detail['newVersion']}`]({branch_url})",
-        f"Pairs: {m['passCount']} pass / {m['warnCount']} warn / {m['failCount']} fail / {m['manualCheckCount']} manual_check",
+        f"Pairs: {m['passCount']} pass / {m['failCount']} fail / {m['manualCheckCount']} manual_check",
     ]
     if m.get("criticalItems"):
         lines.append("**Critical:** " + ", ".join(m["criticalItems"]))
@@ -364,8 +365,8 @@ app/
   - run-level `run_summary.json` uploaded with correct content and S3 key
   - `_emit_completed_event` called with the expected `Detail` (mock `boto3.client("events")`)
 - `test_publisher_slack.py`:
-  - `build_slack_message` output for each outcome (PASS/WARN/FAIL/MANUAL_CHECK), including
-    critical/warning item formatting and S3 console URL conversion
+  - `build_slack_message` output for each outcome (PASS/FAIL/MANUAL_CHECK), including
+    critical item formatting and S3 console URL conversion
   - `post_to_slack` call args (mock `requests.post`)
 - `test_publisher_github.py`:
   - `build_github_issue` title/body output for each outcome, including the `release/<version>`
