@@ -7,9 +7,9 @@ import atexit
 import shlex
 import shutil
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional, TextIO
+from typing import TextIO
 
 
 class Tee:
@@ -33,7 +33,7 @@ class Tee:
         return False
 
     @property
-    def encoding(self) -> Optional[str]:
+    def encoding(self) -> str | None:
         for stream in self._streams:
             encoding = getattr(stream, "encoding", None)
             if encoding:
@@ -41,7 +41,7 @@ class Tee:
         return None
 
 
-def setup_run_logging(output_dir: Path, config_path: Optional[Path] = None) -> Path:
+def setup_run_logging(output_dir: Path, config_path: Path | None = None) -> Path:
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -59,7 +59,7 @@ def setup_run_logging(output_dir: Path, config_path: Optional[Path] = None) -> P
         try:
             log_handle.flush()
             log_handle.close()
-        except Exception:
+        except OSError:
             pass
 
     atexit.register(_cleanup)
@@ -68,7 +68,7 @@ def setup_run_logging(output_dir: Path, config_path: Optional[Path] = None) -> P
     (output_dir / "command.txt").write_text(f"{command_line}\n", encoding="utf-8")
 
     print(f"Command: {command_line}")
-    print(f"Started: {datetime.now().isoformat(timespec='seconds')}")
+    print(f"Started: {datetime.now(tz=timezone.utc).isoformat(timespec='seconds')}")
 
     if config_path:
         config_path = Path(config_path)

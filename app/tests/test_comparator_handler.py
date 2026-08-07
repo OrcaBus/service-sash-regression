@@ -14,7 +14,7 @@ os.environ.setdefault("TESTDATA_CONFIG_S3_URI", "s3://bucket/config.yaml")
 os.environ.setdefault("RESULT_S3_PREFIX", "s3://bucket/results/")
 os.environ.setdefault("AWS_DEFAULT_REGION", "ap-southeast-2")
 
-from comparator.lambdas.comparator.handler import handler  # noqa: E402
+from comparator.lambdas.comparator.handler import handler
 
 _CONFIG = {
     "pairs": [
@@ -188,12 +188,12 @@ class TestHandler:
     def test_raises_on_unknown_case_name(self):
         with (
             patch("comparator.lambdas.comparator.handler.load_config", return_value=_CONFIG),
+            pytest.raises(ValueError, match="nonexistent"),
         ):
-            with pytest.raises(ValueError, match="nonexistent"):
-                handler(
-                    {"new_version": "0.7.0", "baseline_version": "0.6.4", "case_name": "nonexistent"},
-                    None,
-                )
+            handler(
+                {"new_version": "0.7.0", "baseline_version": "0.6.4", "case_name": "nonexistent"},
+                None,
+            )
 
     def test_new_output_path_overrides_config_run2(self):
         """Watcher can pass new_output_path directly, bypassing config run2."""

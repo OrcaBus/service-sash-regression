@@ -11,7 +11,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "comparator"))
 
-from comprehensive_sash_comparison import NUMERIC_DELTA_EPSILON, _build_compact_summary  # noqa: E402
+from comprehensive_sash_comparison import (
+    NUMERIC_DELTA_EPSILON,
+    _build_compact_summary,
+)
 
 
 def _metrics(purity1=None, purity2=None, tmb1=None, tmb2=None, different_keys=None, missing=0):
