@@ -1,9 +1,12 @@
+# Transitive dev-dependency advisories, pinned so `pnpm audit` (the first step of `make check`,
+# which CI runs) stays green. None are runtime-exposed — they arrive via eslint/jest.
+# Bounds move as new advisories land: re-derive from `pnpm audit --json`, don't hand-edit blind.
 overrides:
   'flatted@<=3.4.1': '^3.4.2'
-  'brace-expansion@<1.1.13': '^1.1.13'
-  'brace-expansion@>=2.0.0 <2.0.3': '^2.0.3'
-  'brace-expansion@>=4.0.0 <5.0.6': '5.0.6'
+  'brace-expansion@<1.1.18': '^1.1.18'
+  'brace-expansion@>=2.0.0 <2.1.4': '^2.1.4'
+  'brace-expansion@>=3.0.0 <5.0.9': '^5.0.9'
   'picomatch@<2.3.2': '^2.3.2'
   'picomatch@>=4.0.0 <4.0.4': '4.0.4'
-  'js-yaml@<3.15.0': '^3.15.0'
+  'js-yaml@<3.15.1': '^3.15.1'
   '@babel/core@<=7.29.0': '^7.29.6'
