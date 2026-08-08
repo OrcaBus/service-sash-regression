@@ -34,9 +34,14 @@ Sash Regression Service
 New Here? Start Here
 --------------------------------------------------------------------------------
 
-If you are not familiar with AWS, Lambda, or CDK, read the beginner guide first:
-
-- [`docs/beginner-guide.md`](docs/beginner-guide.md)
+- [`docs/HANDOVER.md`](docs/HANDOVER.md) — **start here if you are taking this service over.**
+  What is deployed, what is not, open items, and how to reproduce a comparison from scratch.
+- [`docs/beginner-guide.md`](docs/beginner-guide.md) — if you are not familiar with AWS, Lambda,
+  or CDK, read this first.
+- [`docs/operation/SOP/`](docs/operation/SOP/README.md) — the runbooks: manual Comparator
+  invocation, submitting a regression run, deploying, adding a testdata pair, troubleshooting.
+- [`docs/comparison-thresholds.md`](docs/comparison-thresholds.md) — how `PASS` / `FAIL` is
+  decided, and why there is no tolerance band.
 
 
 Service Description
@@ -48,17 +53,52 @@ Service Description
 
 ### Description
 
-This service runs a Docker-based Lambda (the **Comparator**) that:
+The service is three Docker-based Lambdas that chain into one regression run:
 
-1. Downloads the new and baseline `sash` pipeline output directories from S3 (pipeline cache / project-data buckets) for a given test case.
-2. Runs a schema check and a comprehensive comparison between the two output trees (`app/comparator/schema_check.py`, `app/comparator/comparison.py`, `app/comparator/comprehensive_sash_comparison.py`).
-3. Uploads the comparison results to a results bucket and returns a pass/fail summary.
+1. **Submitter** — given a new and a baseline `sash` version, checks OrcaBus for an existing
+   matching run and, if there isn't one, submits a new `sash` run via the `WruDraftValidator`
+   Lambda. Test runs are named `umccr_tested_sash_{new}_vs_{baseline}_{portal_run_id}` so they
+   are identifiable without a database lookup.
+2. **Watcher** — listens for the `sash` run finishing and asynchronously invokes the Comparator
+   with the new run's output path.
+3. **Comparator** — downloads the new and baseline output directories from S3, runs a schema
+   check and a comprehensive comparison between the two trees (`app/comparator/schema_check.py`,
+   `app/comparator/comparison.py`, `app/comparator/comprehensive_sash_comparison.py`), uploads
+   the results to the results bucket, and returns a compact `PASS` / `FAIL` / `MANUAL_CHECK`
+   summary. See [`docs/comparison-thresholds.md`](docs/comparison-thresholds.md) for how that
+   verdict is decided.
 
-The set of test cases and their S3 locations is driven by a YAML config file (`testdata/config/sash-regression/testdata-cases.yaml`) read from the testdata bucket.
+The set of test cases and their S3 locations is driven by a YAML config file
+(`testdata/config/sash-regression/testdata-cases.yaml`) read from the testdata bucket.
+
+The Comparator can also be invoked on its own against two already-completed runs, without the
+Submitter or Watcher — see [`docs/operation/SOP/PM.SR.1/`](docs/operation/SOP/PM.SR.1/PM.SR.1-ManualComparatorInvocation.md).
+
+**Phase 3 (Publisher — post results to GitHub and Slack) is designed but not implemented.** See
+`.kiro/specs/sash-regression-completion/`.
 
 ### API Endpoints
 
-This service does not expose any API endpoints. The Lambda is invoked directly (manually, or by an external orchestrator) with a payload such as:
+The Submitter is fronted by an API Gateway proxy (`SubmitterApi`), whose URL is published as the
+`SubmitterApiUrl` stack output. `POST` to it with:
+
+```json
+{
+  "new_version": "0.7.0",
+  "baseline_version": "0.6.4",
+  "tumor_library_id": "L2301218",
+  "normal_library_id": "L2301217"
+}
+```
+
+`new_version` and `baseline_version` are required; the two library IDs default to the testdata
+pair configured on the Lambda (`TESTDATA_TUMOR_LIBRARY_ID` / `TESTDATA_NORMAL_LIBRARY_ID`). The
+response carries `portal_run_id` and an `action` of `submitted`, `already_running`, or
+`already_succeeded`. In practice this endpoint is called by
+[`docs/operation/SOP/SR.1/generate-WRU-draft.sh`](docs/operation/SOP/SR.1/generate-WRU-draft.sh)
+rather than by hand.
+
+The Comparator has no endpoint — it is invoked by the Watcher, or directly for a manual run:
 
 ```json
 { "new_version": "0.7.0", "baseline_version": "0.6.4" }
@@ -66,11 +106,23 @@ This service does not expose any API endpoints. The Lambda is invoked directly (
 
 ### Consumed Events
 
-This service does not consume any EventBridge events.
+| Source | Detail type | Filter |
+|--------|-------------|--------|
+| `orcabus.workflowmanager` | `WorkflowRunStateChange` | `detail.workflowRunName` prefix `umccr_tested_` |
+
+The Watcher receives every state change for our test runs and acts only on `SUCCEEDED` (it
+invokes the Comparator) and `FAILED` (it logs a warning). Anything whose run name does not parse
+as one of ours is ignored.
 
 ### Published Events
 
-This service does not publish any EventBridge events.
+| Source | Detail type | Emitted by |
+|--------|-------------|------------|
+| `sash-regression.submitter` | `SashRegressionRunSubmitted` | Submitter, after a run is submitted |
+
+Detail: `portalRunId`, `newVersion`, `baselineVersion`, `workflowRunName`, `tumorLibraryId`,
+`normalLibraryId`. Nothing consumes this event yet — it exists for observability and for the
+Phase 3 Publisher.
 
 ### (Internal) Data states & persistence model
 
@@ -86,10 +138,13 @@ This service is stateless. It reads pipeline outputs and baseline config from S3
 
 - The testdata bucket is treated as a read-only, curated baseline. Comparison results always go to `umccr-research-dev`, regardless of which stage (`beta`/`prod`) the Lambda runs in — promoting a result to the testdata baseline is a manual, one-way admin action.
 - A path-traversal guard is enforced when downloading S3 directories (`app/comparator/s3_utils.py`).
+- There is no tolerance band on the comparison. Any difference in a key clinical output file, and any purity/ploidy/TMB/MSI delta above floating-point noise, fails the pair — see [`docs/comparison-thresholds.md`](docs/comparison-thresholds.md).
+- Test runs are named `umccr_tested_sash_{new}_vs_{baseline}_{portal_run_id}`. The prefix is what the Watcher's EventBridge rule filters on, so it is load-bearing, not just a label.
+- The Submitter is idempotent by lookup: it checks OrcaBus for an existing run matching the same code version and libraries before submitting, and returns `already_running` / `already_succeeded` instead of creating a duplicate.
 
 ### Permissions & Access Control
 
-No end-user authentication or authorisation applies. The Lambda is invoked directly via the AWS API/console and is scoped via IAM to the specific S3 buckets listed above (`infrastructure/stage/deployment-stack.ts`).
+No end-user authentication or authorisation applies — note that the Submitter API Gateway endpoint is unauthenticated, and is relied on being non-public knowledge rather than access-controlled. Each Lambda has its own IAM role scoped to what it needs (`infrastructure/stage/deployment-stack.ts`): the Comparator to the S3 buckets listed above, the Submitter to the OrcaBus token secret, the hostname SSM parameter, the `WruDraftValidator` function, and `events:PutEvents` on the main bus, and the Watcher to invoking the Comparator.
 
 ### Change Management
 
@@ -99,7 +154,9 @@ Manual tagging of git commits following Semantic Versioning (semver) guidelines.
 
 #### Release management
 
-The service employs a fully automated CI/CD pipeline that automatically builds and releases all changes to the `main` branch across `beta` and `prod` environments.
+The service employs a fully automated CI/CD pipeline that automatically builds and releases all changes to the `main` branch across `beta` and `prod` environments. Manual CDK deploys are available for dev iteration — see [`docs/operation/SOP/PM.SR.3/`](docs/operation/SOP/PM.SR.3/PM.SR.3-ServiceDeployment.md).
+
+> As of 2026-08-07 the service has only ever been deployed to **beta**, and the `WruDraftValidator` function name for gamma/prod is still a beta placeholder in `infrastructure/stage/constants.ts`. Resolve that before relying on a prod deploy.
 
 
 Infrastructure & Deployment
@@ -113,7 +170,22 @@ This service has no stateful resources. The `StatefulStack` is kept as a placeho
 
 ### Stateless
 
-- **`ComparatorFunction`** — Docker image Lambda (ARM64, 4096 MB, 10 GiB ephemeral storage, 15 min timeout) built from `./app`. Runs the schema check and comparison logic, reading `TESTDATA_CONFIG_S3_URI` and writing to `RESULT_S3_PREFIX`.
+All three Lambdas are ARM64 Docker image functions built from the same `./app` image, each with a
+different `cmd` entrypoint and its own dedicated IAM role.
+
+- **`ComparatorFunction`** — 4096 MB, 10 GiB ephemeral storage, 15 min timeout. Runs the schema
+  check and comparison logic, reading `TESTDATA_CONFIG_S3_URI` and writing to `RESULT_S3_PREFIX`.
+- **`SubmitterFunction`** — 512 MB, 5 min timeout. Reads the OrcaBus token from Secrets Manager
+  and the API hostname from SSM, invokes the `WruDraftValidator` Lambda, and emits
+  `SashRegressionRunSubmitted`. Fronted by **`SubmitterApi`**, a `LambdaRestApi` proxy whose URL
+  is exported as the `SubmitterApiUrl` stack output.
+- **`WatcherFunction`** — 512 MB, 5 min timeout. Triggered by **`WatcherRule`**, an EventBridge
+  rule on the OrcaBus main bus matching `WorkflowRunStateChange` events whose `workflowRunName`
+  starts with `umccr_tested_`. Async-invokes the Comparator on `SUCCEEDED`.
+
+The `WruDraftValidator` function name is per-stage in `infrastructure/stage/constants.ts`.
+**Only the BETA name is known** — GAMMA and PROD currently hold the BETA placeholder, so those
+stages are not deployable as-is.
 
 ### CDK Commands
 
@@ -167,7 +239,7 @@ The root of the project is an AWS CDK project where the main application logic l
 
 The project is organized into the following key directories:
 
-- **`./app`**: Contains the main application logic — the `comparator` Python package and its Lambda handler. You can open the code editor directly in this folder, and the application should run independently.
+- **`./app`**: Contains the main application logic — the `comparator`, `submitter`, and `watcher` Python packages and their Lambda handlers, plus shared tests in `./app/tests`. You can open the code editor directly in this folder, and the application should run independently.
 
 - **`./bin/deploy.ts`**: Serves as the entry point of the application. It initializes two root stacks: `stateless` and `stateful`. You can remove one of these if your service does not require it.
 
@@ -176,7 +248,7 @@ The project is organized into the following key directories:
   - **`./infrastructure/stage`**: Defines the stage stacks for different environments:
     - **`./infrastructure/stage/config.ts`**: Contains environment-specific configuration files (e.g., `beta`, `prod`).
     - **`./infrastructure/stage/constants.ts`**: Defines the testdata/results bucket names and S3 config paths.
-    - **`./infrastructure/stage/deployment-stack.ts`**: The CDK stack entry point for provisioning the `ComparatorFunction` and its IAM role.
+    - **`./infrastructure/stage/deployment-stack.ts`**: The CDK stack entry point for provisioning the Comparator, Submitter, and Watcher functions, the Submitter API, the Watcher EventBridge rule, and a dedicated IAM role per function.
 
 - **`.github/workflows/pr-tests.yml`**: Configures GitHub Actions to run tests for `make check` (linting and code style), tests defined in `./test`, and `make test` for the `./app` directory.
 

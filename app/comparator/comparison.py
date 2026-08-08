@@ -24,7 +24,7 @@ def run_comparison(run1: Path, run2: Path, tumor: str, normal: str, output_dir: 
         "--output", str(output_dir),
     ]
     logger.info(f"Running comparison: {' '.join(cmd)}")
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    result = subprocess.run(cmd, capture_output=True, text=True, check=False)
 
     summary_path = output_dir / "summary.json"
     metrics_path = output_dir / "metrics.json"

@@ -1,6 +1,5 @@
 from pathlib import Path
 
-
 from comparator.schema_check import EXPECTED_FILES, check_schema
 
 

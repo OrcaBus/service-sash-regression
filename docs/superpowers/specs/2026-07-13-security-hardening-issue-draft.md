@@ -1,6 +1,7 @@
 # Draft GitHub issue — security/robustness hardening (Submitter + Comparator)
 
-Not yet posted. Review and edit before filing with `gh issue create --repo OrcaBus/service-sash-regression`.
+Posted as [issue #8](https://github.com/OrcaBus/service-sash-regression/issues/8). Kept here as
+the original draft for reference — the filed issue is the source of truth for scope/status.
 
 ---
 

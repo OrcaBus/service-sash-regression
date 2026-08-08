@@ -1,8 +1,9 @@
 """Unit tests for the Submitter Lambda handler."""
 
 import json
-import pytest
 from unittest.mock import patch
+
+import pytest
 
 ENV = {
     "ORCABUS_TOKEN_SECRET_ID": "orcabus/token",

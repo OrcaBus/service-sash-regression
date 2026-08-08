@@ -36,12 +36,12 @@ import json
 import math
 import os
 import re
-import yaml
-from pathlib import Path
-from typing import Dict, List, Any, Set, Optional
 from collections import Counter
+from pathlib import Path
+from typing import Any
 
 import pandas as pd
+import yaml
 from run_logging import setup_run_logging
 
 # Try to import VCF libraries
@@ -57,6 +57,10 @@ try:
 except ImportError:
     HAS_CYVCF2 = False
 
+# Any purity/ploidy/TMB/MSI delta at or above this is treated as a real difference (FAIL), not
+# floating-point noise. See docs/comparison-thresholds.md.
+NUMERIC_DELTA_EPSILON = 1e-6
+
 
 # ---------------------------------------------------------------------------
 # Utility functions for cleaner pandas-based parsing
@@ -68,7 +72,7 @@ def read_tsv_file(path: str) -> pd.DataFrame:
         return pd.DataFrame()
     try:
         return pd.read_csv(path, sep='\t', low_memory=False)
-    except Exception:
+    except Exception:  # noqa: BLE001
         return pd.DataFrame()
 
 
@@ -153,7 +157,7 @@ class SashRunAnalyzer:
         # Fallback: return the double underscore path even if it doesn't exist yet
         return str(p / f"{self.tumor}__{self.normal}")
 
-    def _read_text_file(self, path: str) -> List[str]:
+    def _read_text_file(self, path: str) -> list[str]:
         """Read text file, handling both regular and gzipped files."""
         if not os.path.exists(path):
             return []
@@ -165,7 +169,7 @@ class SashRunAnalyzer:
             else:
                 with open(path, 'rt', encoding='utf-8', errors='ignore') as f:
                     return f.read().splitlines()
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             print(f"Error reading {path}: {e}")
             return []
 
@@ -180,7 +184,7 @@ class SashRunAnalyzer:
                     return json.load(f)
             with open(path, 'r', encoding='utf-8') as f:
                 return json.load(f)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             print(f"Error reading JSON {path}: {e}")
             return {}
 
@@ -243,7 +247,7 @@ class SashRunAnalyzer:
 
         return text
 
-    def _calculate_file_md5(self, path: str) -> Optional[str]:
+    def _calculate_file_md5(self, path: str) -> str | None:
         """Calculate MD5 checksum of a file."""
         if not os.path.exists(path):
             return None
@@ -254,11 +258,11 @@ class SashRunAnalyzer:
                 for chunk in iter(lambda: f.read(4096), b""):
                     hash_md5.update(chunk)
             return hash_md5.hexdigest()
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             print(f"Error calculating MD5 for {path}: {e}")
             return None
 
-    def parse_bcftools_stats(self, path: str) -> Dict[str, Any]:
+    def parse_bcftools_stats(self, path: str) -> dict[str, Any]:
         """Parse bcftools stats file."""
         lines = self._read_text_file(path)
         if not lines:
@@ -294,7 +298,7 @@ class SashRunAnalyzer:
 
         return stats
 
-    def count_vcf_variants(self, vcf_path: str) -> Dict[str, Any]:
+    def count_vcf_variants(self, vcf_path: str) -> dict[str, Any]:
         """Count variants in VCF file with detailed breakdown using proper VCF libraries."""
         if not os.path.exists(vcf_path):
             return {'total': 0, 'by_type': {}, 'by_filter': {}, 'by_chromosome': {}}
@@ -309,7 +313,7 @@ class SashRunAnalyzer:
         else:
             return self._count_vcf_manual(vcf_path)
 
-    def _count_vcf_cyvcf2(self, vcf_path: str) -> Dict[str, Any]:
+    def _count_vcf_cyvcf2(self, vcf_path: str) -> dict[str, Any]:
         """Count variants using cyvcf2 library."""
         try:
             from cyvcf2 import VCF
@@ -358,11 +362,11 @@ class SashRunAnalyzer:
                 'by_chromosome': dict(by_chromosome),
                 'mnv_tagged': mnv_tagged
             }
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             print(f"Error using cyvcf2 for {vcf_path}: {e}")
             return self._count_vcf_manual(vcf_path)
 
-    def _count_vcf_pysam(self, vcf_path: str) -> Dict[str, Any]:
+    def _count_vcf_pysam(self, vcf_path: str) -> dict[str, Any]:
         """Count variants using pysam library."""
         try:
             import pysam
@@ -411,11 +415,11 @@ class SashRunAnalyzer:
                 'by_chromosome': dict(by_chromosome),
                 'mnv_tagged': mnv_tagged
             }
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             print(f"Error using pysam for {vcf_path}: {e}")
             return self._count_vcf_manual(vcf_path)
 
-    def parse_cpsr_tier_counts(self, tsv_path: str) -> Dict[str, int]:
+    def parse_cpsr_tier_counts(self, tsv_path: str) -> dict[str, int]:
         """Parse CPSR tiers using pandas with concise classification columns."""
         df = read_tsv_file(tsv_path)
         if df.empty:
@@ -430,7 +434,7 @@ class SashRunAnalyzer:
         counts['_classification_column_used'] = col
         return counts
 
-    def _count_vcf_manual(self, vcf_path: str) -> Dict[str, Any]:
+    def _count_vcf_manual(self, vcf_path: str) -> dict[str, Any]:
         """Count variants using manual parsing (fallback method)."""
         lines = self._read_text_file(vcf_path)
         if not lines:
@@ -486,7 +490,7 @@ class SashRunAnalyzer:
         }
 
 
-    def parse_sv_vcf(self, vcf_path: str) -> Dict[str, Any]:
+    def parse_sv_vcf(self, vcf_path: str) -> dict[str, Any]:
         """Parse structural variant VCF using proper VCF libraries."""
         if not os.path.exists(vcf_path):
             return {'total': 0, 'by_type': {}, 'by_filter': {}}
@@ -501,7 +505,7 @@ class SashRunAnalyzer:
         else:
             return self._parse_sv_manual(vcf_path)
 
-    def _parse_sv_cyvcf2(self, vcf_path: str) -> Dict[str, Any]:
+    def _parse_sv_cyvcf2(self, vcf_path: str) -> dict[str, Any]:
         """Parse SV VCF using cyvcf2."""
         try:
             from cyvcf2 import VCF
@@ -535,11 +539,11 @@ class SashRunAnalyzer:
                 'by_type': dict(by_type),
                 'by_filter': dict(by_filter)
             }
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             print(f"Error using cyvcf2 for SV {vcf_path}: {e}")
             return self._parse_sv_manual(vcf_path)
 
-    def _parse_sv_pysam(self, vcf_path: str) -> Dict[str, Any]:
+    def _parse_sv_pysam(self, vcf_path: str) -> dict[str, Any]:
         """Parse SV VCF using pysam."""
         try:
             import pysam
@@ -573,11 +577,11 @@ class SashRunAnalyzer:
                 'by_type': dict(by_type),
                 'by_filter': dict(by_filter)
             }
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             print(f"Error using pysam for SV {vcf_path}: {e}")
             return self._parse_sv_manual(vcf_path)
 
-    def _parse_sv_manual(self, vcf_path: str) -> Dict[str, Any]:
+    def _parse_sv_manual(self, vcf_path: str) -> dict[str, Any]:
         """Parse structural variant VCF using manual parsing."""
         lines = self._read_text_file(vcf_path)
         if not lines:
@@ -622,7 +626,7 @@ class SashRunAnalyzer:
             'by_filter': dict(by_filter)
         }
 
-    def parse_tier_file(self, tsv_path: str, tier_col: str = 'TIER') -> Dict[str, int]:
+    def parse_tier_file(self, tsv_path: str, tier_col: str = 'TIER') -> dict[str, int]:
         """Parse tier TSV file using pandas."""
         df = read_tsv_file(tsv_path)
         if df.empty:
@@ -648,7 +652,7 @@ class SashRunAnalyzer:
 
         return tier_counts
 
-    def enhanced_vcf_analysis(self) -> Dict[str, Any]:
+    def enhanced_vcf_analysis(self) -> dict[str, Any]:
         """Enhanced VCF analysis with parsing and detailed comparisons."""
         vcf_analysis = {}
 
@@ -715,7 +719,7 @@ class SashRunAnalyzer:
 
         return vcf_analysis
 
-    def vcf_analysis(self, vcf_path: str, vcf_type: str) -> Dict[str, Any]:
+    def vcf_analysis(self, vcf_path: str, vcf_type: str) -> dict[str, Any]:
         """analysis of VCF file with detailed variant parsing."""
         analysis = {
             'total': 0,
@@ -760,7 +764,7 @@ class SashRunAnalyzer:
                     if len(parts) < 8:
                         continue
 
-                    chrom, pos, var_id, ref, alt, qual, filter_val, info = parts[:8]
+                    chrom, _pos, _var_id, ref, alt, qual, filter_val, info = parts[:8]
 
                     # Count by chromosome
                     analysis['by_chromosome'][chrom] = analysis['by_chromosome'].get(chrom, 0) + 1
@@ -823,17 +827,16 @@ class SashRunAnalyzer:
                                         pass
 
                     # Store examples of interesting variants
-                    if len(analysis['variant_examples']) < 10:
-                        if filter_val == 'PASS' or var_type in ['SNV', 'INDEL']:
-                            example = {
-                                # 'position': f"{chrom}:{pos}",
-                                'ref_alt': f"{ref}>{alt}",
-                                'type': var_type,
-                                'quality': qual,
-                                'filter': filter_val,
-                                'key_annotations': self._extract_key_annotations(info_fields, vcf_type)
-                            }
-                            analysis['variant_examples'].append(example)
+                    if len(analysis['variant_examples']) < 10 and (filter_val == 'PASS' or var_type in ['SNV', 'INDEL']):
+                        example = {
+                            # 'position': f"{chrom}:{pos}",
+                            'ref_alt': f"{ref}>{alt}",
+                            'type': var_type,
+                            'quality': qual,
+                            'filter': filter_val,
+                            'key_annotations': self._extract_key_annotations(info_fields, vcf_type)
+                        }
+                        analysis['variant_examples'].append(example)
 
             analysis['total'] = variant_count
 
@@ -852,7 +855,7 @@ class SashRunAnalyzer:
                     }
                     sample_data['depths'] = []  # Clear to save memory
 
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             print(f"Error in VCF analysis for {vcf_path}: {e}")
             analysis['error'] = str(e)
 
@@ -871,7 +874,7 @@ class SashRunAnalyzer:
         else:
             return 'COMPLEX'
 
-    def _extract_annotation_details(self, info_fields: Dict, annotation_details: Dict):
+    def _extract_annotation_details(self, info_fields: dict, annotation_details: dict):
         """Extract annotation details from INFO field."""
         # Common annotation fields to track
         annotation_keys = [
@@ -899,7 +902,7 @@ class SashRunAnalyzer:
                 else:
                     annotation_details[key][value] = annotation_details[key].get(value, 0) + 1
 
-    def _extract_key_annotations(self, info_fields: Dict, vcf_type: str) -> Dict:
+    def _extract_key_annotations(self, info_fields: dict, vcf_type: str) -> dict:
         """Extract key annotations for variant examples."""
         key_info = {}
 
@@ -919,7 +922,7 @@ class SashRunAnalyzer:
 
         return key_info
 
-    def _parse_vcf_header(self, header_lines: List[str]) -> Dict:
+    def _parse_vcf_header(self, header_lines: list[str]) -> dict:
         """Parse VCF header for metadata."""
         header_info = {
             'format_lines': 0,
@@ -951,7 +954,7 @@ class SashRunAnalyzer:
 
         return header_info
 
-    def explore_subdirectories(self) -> Dict[str, Any]:
+    def explore_subdirectories(self) -> dict[str, Any]:
         """Explore and analyze subdirectory structure and key files."""
         directory_analysis = {}
 
@@ -997,7 +1000,7 @@ class SashRunAnalyzer:
                         file_counts[file_ext] = file_counts.get(file_ext, 0) + 1
                         try:
                             total_size += os.path.getsize(file_path)
-                        except (OSError, IOError):
+                        except OSError:
                             pass
 
                 directory_analysis['expected_directories'][dir_name]['file_counts'] = file_counts
@@ -1016,7 +1019,7 @@ class SashRunAnalyzer:
 
         return directory_analysis
 
-    def _analyze_pcgr_directory(self, pcgr_dir: str) -> Dict[str, Any]:
+    def _analyze_pcgr_directory(self, pcgr_dir: str) -> dict[str, Any]:
         """Detailed analysis of PCGR output directory."""
         pcgr_analysis = {}
 
@@ -1076,7 +1079,7 @@ class SashRunAnalyzer:
 
         return pcgr_analysis
 
-    def _analyze_cpsr_directory(self, cpsr_dir: str) -> Dict[str, Any]:
+    def _analyze_cpsr_directory(self, cpsr_dir: str) -> dict[str, Any]:
         """Detailed analysis of CPSR output directory."""
         cpsr_analysis = {}
 
@@ -1115,7 +1118,7 @@ class SashRunAnalyzer:
 
         return cpsr_analysis
 
-    def parse_purple_purity(self) -> Dict[str, Any]:
+    def parse_purple_purity(self) -> dict[str, Any]:
         """Parse Purple purity file using pandas."""
         path = os.path.join(self.base_dir, 'purple', f'{self.tumor}.purple.purity.tsv')
         df = read_tsv_file(path)
@@ -1123,7 +1126,7 @@ class SashRunAnalyzer:
             return {}
         return df.iloc[0].to_dict()
 
-    def parse_purple_drivers(self, driver_type: str) -> List[Dict[str, Any]]:
+    def parse_purple_drivers(self, driver_type: str) -> list[dict[str, Any]]:
         """Parse Purple driver catalog using pandas."""
         path = os.path.join(self.base_dir, 'purple', f'{self.tumor}.purple.driver.catalog.{driver_type}.tsv')
         df = read_tsv_file(path)
@@ -1131,7 +1134,7 @@ class SashRunAnalyzer:
             return []
         return df.to_dict(orient='records')
 
-    def parse_purple_qc(self) -> Dict[str, Any]:
+    def parse_purple_qc(self) -> dict[str, Any]:
         """Parse Purple QC metrics using pandas."""
         path = os.path.join(self.base_dir, 'purple', f'{self.tumor}.purple.qc')
         df = read_tsv_file(path)
@@ -1139,7 +1142,7 @@ class SashRunAnalyzer:
             return {}
         return df.iloc[0].to_dict()
 
-    def parse_purple_cnv_somatic(self) -> Dict[str, Any]:
+    def parse_purple_cnv_somatic(self) -> dict[str, Any]:
         """Parse Purple somatic CNV segments using pandas."""
         path = os.path.join(self.base_dir, 'purple', f'{self.tumor}.purple.cnv.somatic.tsv')
         df = read_tsv_file(path)
@@ -1177,7 +1180,7 @@ class SashRunAnalyzer:
 
         return {'total_segments': len(df), 'by_type': by_type, 'summary_stats': summary}
 
-    def parse_purple_cnv_gene(self) -> Dict[str, Any]:
+    def parse_purple_cnv_gene(self) -> dict[str, Any]:
         """Parse Purple gene-level CNV using pandas."""
         path = os.path.join(self.base_dir, 'purple', f'{self.tumor}.purple.cnv.gene.tsv')
         df = read_tsv_file(path)
@@ -1214,7 +1217,7 @@ class SashRunAnalyzer:
 
         return {'total_genes': len(df), 'by_type': by_type, 'key_cancer_genes': key_gene_status}
 
-    def _parse_af_file(self, af_path: str) -> Dict[str, Any]:
+    def _parse_af_file(self, af_path: str) -> dict[str, Any]:
         """Parse AF (allele frequency) file using pandas."""
         df = read_tsv_file(af_path)
         if df.empty:
@@ -1245,7 +1248,7 @@ class SashRunAnalyzer:
             },
         }
 
-    def parse_af_tumor_keygenes(self) -> Dict[str, Any]:
+    def parse_af_tumor_keygenes(self) -> dict[str, Any]:
         """Parse AF tumor keygenes - CRITICAL for PAVE impact."""
         for path in [
             os.path.join(self.base_dir, 'cancer_report', 'af_tumor_keygenes.txt'),
@@ -1255,7 +1258,7 @@ class SashRunAnalyzer:
                 return self._parse_af_file(path)
         return {'total_variants': 0, 'af_distribution': {}, 'summary_stats': {}}
 
-    def parse_af_tumor_global(self) -> Dict[str, Any]:
+    def parse_af_tumor_global(self) -> dict[str, Any]:
         """Parse AF tumor global - CRITICAL for PAVE impact."""
         for path in [
             os.path.join(self.base_dir, 'cancer_report', 'af_tumor.txt'),
@@ -1265,7 +1268,7 @@ class SashRunAnalyzer:
                 return self._parse_af_file(path)
         return {'total_variants': 0, 'af_distribution': {}, 'summary_stats': {}}
 
-    def parse_variant_counts_json(self, json_path: str) -> Dict[str, Any]:
+    def parse_variant_counts_json(self, json_path: str) -> dict[str, Any]:
         """Parse variant counts JSON for TMB/MSI metrics."""
         if not os.path.exists(json_path):
             return {}
@@ -1296,7 +1299,7 @@ class SashRunAnalyzer:
 
         return tmb_msi
 
-    def parse_pcgr_msigs(self, msigs_path: str, top_n: int = 5) -> List[Dict[str, Any]]:
+    def parse_pcgr_msigs(self, msigs_path: str, top_n: int = 5) -> list[dict[str, Any]]:
         """Parse PCGR mutational signatures TSV and return top N signatures."""
         df = read_tsv_file(msigs_path)
         if df.empty:
@@ -1319,7 +1322,7 @@ class SashRunAnalyzer:
             for _, row in df.iterrows()
         ]
 
-    def analyze_baf_circos(self) -> Dict[str, Any]:
+    def analyze_baf_circos(self) -> dict[str, Any]:
         """Analyze BAF circos plot (uses purple_dir)."""
         baf_plot_path = os.path.join(self.base_dir, 'cancer_report', f'{self.tumor}.circos_baf.png')
         if not os.path.exists(baf_plot_path):
@@ -1334,7 +1337,7 @@ class SashRunAnalyzer:
 
         return baf_analysis
 
-    def analyze_linx_outputs(self) -> Dict[str, Any]:
+    def analyze_linx_outputs(self) -> dict[str, Any]:
         """Analyze LINX outputs (takes purple_dir as input)."""
         linx_dir = os.path.join(self.base_dir, 'linx')
 
@@ -1367,7 +1370,7 @@ class SashRunAnalyzer:
 
         return linx_analysis
 
-    def analyze_cancer_report(self) -> Dict[str, Any]:
+    def analyze_cancer_report(self) -> dict[str, Any]:
         """Analyze cancer report (groups purple_dir outputs)."""
         cancer_report_dir = os.path.join(self.base_dir, 'cancer_report')
 
@@ -1414,7 +1417,7 @@ class SashRunAnalyzer:
 
         return report_analysis
 
-    def parse_cancer_report_table(self, base_filename: str) -> Dict[str, Any]:
+    def parse_cancer_report_table(self, base_filename: str) -> dict[str, Any]:
         """Parse structured cancer report tables (supports TSV/JSON sources)."""
         table_dirs = [
             os.path.join(self.base_dir, 'cancer_report', 'cancer_report_tables'),
@@ -1457,7 +1460,7 @@ class SashRunAnalyzer:
                 if chosen_path:
                     break
 
-        result: Dict[str, Any] = {
+        result: dict[str, Any] = {
             'path': chosen_path,
             'md5': self._calculate_file_md5(chosen_path) if chosen_path else None,
             'metrics': {}
@@ -1466,7 +1469,7 @@ class SashRunAnalyzer:
         if not chosen_path:
             return result
 
-        metrics: Dict[str, Any] = {}
+        metrics: dict[str, Any] = {}
 
         try:
             if chosen_path.endswith(('.tsv', '.tsv.gz', '.txt', '.txt.gz')):
@@ -1474,7 +1477,7 @@ class SashRunAnalyzer:
                 if lines:
                     header = [col.strip() for col in lines[0].split('\t')]
                     metrics['_entry_count'] = 0
-                    used_keys: Dict[str, int] = {}
+                    used_keys: dict[str, int] = {}
                     for idx, line in enumerate(lines[1:], start=1):
                         if not line.strip():
                             continue
@@ -1502,7 +1505,7 @@ class SashRunAnalyzer:
                         metrics[str(key)] = self._stringify_value(value)
                 elif isinstance(data, list):
                     metrics['_entry_count'] = len(data)
-                    used_keys: Dict[str, int] = {}
+                    used_keys: dict[str, int] = {}
                     key_fields = ['key', 'variable', 'name', 'title', 'id', 'label']
 
                     for idx, entry in enumerate(data):
@@ -1527,13 +1530,13 @@ class SashRunAnalyzer:
                             metrics[f'entry_{idx}'] = self._stringify_value(entry)
                 else:
                     metrics['_value'] = self._stringify_value(data)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             print(f"Warning: could not normalise cancer report table {chosen_path}: {e}")
 
         result['metrics'] = metrics
         return result
 
-    def parse_multiqc_data(self) -> Dict[str, Any]:
+    def parse_multiqc_data(self) -> dict[str, Any]:
         """Parse MultiQC data."""
         multiqc_path = os.path.join(self.base_dir, 'multiqc_data', 'multiqc_data.json')
         multiqc_data = self._read_json_file(multiqc_path)
@@ -1549,7 +1552,7 @@ class SashRunAnalyzer:
 
         return multiqc_data
 
-    def _parse_multiqc_tsv(self, path: str) -> Dict[str, Dict[str, Any]]:
+    def _parse_multiqc_tsv(self, path: str) -> dict[str, dict[str, Any]]:
         """Parse a generic MultiQC-style TSV into a nested dictionary using pandas."""
         df = read_tsv_file(path)
         if df.empty:
@@ -1557,7 +1560,7 @@ class SashRunAnalyzer:
         df = df.set_index(df.columns[0])
         return df.to_dict(orient='index')
 
-    def parse_dragen_metrics(self) -> Dict[str, Any]:
+    def parse_dragen_metrics(self) -> dict[str, Any]:
         """Collect DRAGEN-related MultiQC tables for downstream comparison."""
         multiqc_dir = os.path.join(self.base_dir, 'multiqc_data')
         if not os.path.exists(multiqc_dir):
@@ -1574,7 +1577,7 @@ class SashRunAnalyzer:
             'dragen_ploidy': 'dragen_ploidy.txt'
         }
 
-        dragen_metrics: Dict[str, Any] = {}
+        dragen_metrics: dict[str, Any] = {}
 
         for key, filename in dragen_files.items():
             file_path = os.path.join(multiqc_dir, filename)
@@ -1596,7 +1599,7 @@ class SashRunAnalyzer:
 
         return dragen_metrics
 
-    def analyze_run(self) -> Dict[str, Any]:
+    def analyze_run(self) -> dict[str, Any]:
         """Perform comprehensive analysis of the run - focused on metrics, not file sizes."""
         analysis = {
             'run_info': {
@@ -1732,7 +1735,7 @@ class SashRunAnalyzer:
                     if human_summary:
                         analysis['pcgr_mutational_signatures']['human_summary'] = human_summary
                         analysis['pcgr_mutational_signatures']['qc_summary_used'] = os.path.relpath(qc_found, self.base_dir)
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001
                     print(f"Warning: could not parse QC summary {qc_found}: {e}")
 
         # Find CPSR tiers/classification file with fallbacks (including .cpsr.grch38.classification.tsv.gz)
@@ -1871,7 +1874,7 @@ class SashRunAnalyzer:
 
         return analysis
 
-    def parse_pcgr_pass_records(self, vcf_path: str) -> List[Dict[str, Any]]:
+    def parse_pcgr_pass_records(self, vcf_path: str) -> list[dict[str, Any]]:
         """Parse PCGR PASS VCF into detailed per-allele records.
 
         Extracts: CHROM, POS, REF, ALT, key, var_type, TUMOR_AF/DP, NORMAL_AF/DP,
@@ -1882,7 +1885,7 @@ class SashRunAnalyzer:
             return []
 
         # Parse CSQ header to get field order
-        csq_fields: List[str] = []
+        csq_fields: list[str] = []
         for h in lines:
             if h.startswith('##INFO=<ID=CSQ') and 'Format:' in h:
                 m = re.search(r'Format: ([^">]+)', h)
@@ -1890,7 +1893,7 @@ class SashRunAnalyzer:
                     csq_fields = m.group(1).split('|')
                 break
 
-        def parse_info(info_str: str) -> Dict[str, Any]:
+        def parse_info(info_str: str) -> dict[str, Any]:
             d = {}
             for item in info_str.split(';'):
                 if '=' in item:
@@ -1907,7 +1910,7 @@ class SashRunAnalyzer:
                 return 'MNP'
             return 'Insertion' if len(alt) > len(ref) else 'Deletion'
 
-        def best_csq(csq_entries: List[str], alt: str) -> Dict[str, Any]:
+        def best_csq(csq_entries: list[str], alt: str) -> dict[str, Any]:
             if not csq_entries or not csq_fields:
                 return {}
             # Filter to allele-specific entries
@@ -1915,7 +1918,7 @@ class SashRunAnalyzer:
             entries = [e for e in csq_entries if (e.split('|')[alle_idx] if len(e.split('|')) > alle_idx else '') == alt]
             if not entries:
                 entries = csq_entries
-            def entry_to_dict(e: str) -> Dict[str, Any]:
+            def entry_to_dict(e: str) -> dict[str, Any]:
                 parts = e.split('|')
                 return {csq_fields[i]: (parts[i] if i < len(parts) else '') for i in range(len(csq_fields))}
             dicts = [entry_to_dict(e) for e in entries]
@@ -1928,14 +1931,14 @@ class SashRunAnalyzer:
                     return d
             return dicts[0]
 
-        records: List[Dict[str, Any]] = []
+        records: list[dict[str, Any]] = []
         for line in lines:
             if not line or line.startswith('#'):
                 continue
             parts = line.split('\t')
             if len(parts) < 8:
                 continue
-            chrom, pos, _id, ref, alts, qual, flt, info = parts[:8]
+            chrom, pos, _id, ref, alts, _qual, _flt, info = parts[:8]
             pos_i = int(pos)
             info_d = parse_info(info)
             csq_val = info_d.get('CSQ', '')
@@ -1974,14 +1977,14 @@ class SashRunAnalyzer:
 class ComparisonReporter:
     """Generate comprehensive comparison reports."""
 
-    def __init__(self, analysis1: Dict[str, Any], analysis2: Dict[str, Any],
+    def __init__(self, analysis1: dict[str, Any], analysis2: dict[str, Any],
                  run1_name: str, run2_name: str):
         self.analysis1 = analysis1
         self.analysis2 = analysis2
         self.run1_name = run1_name
         self.run2_name = run2_name
 
-    def calculate_jaccard_similarity(self, set1: Set[str], set2: Set[str]) -> float:
+    def calculate_jaccard_similarity(self, set1: set[str], set2: set[str]) -> float:
         """Calculate Jaccard similarity between two sets."""
         if not set1 and not set2:
             return 1.0
@@ -2015,7 +2018,7 @@ class ComparisonReporter:
         value_str = str(value).strip()
         return value_str if value_str else 'N/A'
 
-    def _parse_numeric(self, value) -> Optional[float]:
+    def _parse_numeric(self, value) -> float | None:
         """Attempt to convert a value to float, handling commas and percentages."""
         if value is None:
             return None
@@ -2028,8 +2031,7 @@ class ComparisonReporter:
 
         # Remove thousands separators and percentage signs
         text = text.replace(',', '')
-        if text.endswith('%'):
-            text = text[:-1]
+        text = text.removesuffix('%')
 
         try:
             return float(text)
@@ -2071,9 +2073,9 @@ class ComparisonReporter:
         except ValueError:
             return (1, text.lower())
 
-    def _format_counter_table(self, title: str, counter1: Dict[str, Any],
-                              counter2: Dict[str, Any], sort_key=None,
-                              indent: int = 2) -> List[str]:
+    def _format_counter_table(self, title: str, counter1: dict[str, Any],
+                              counter2: dict[str, Any], sort_key=None,
+                              indent: int = 2) -> list[str]:
         """Format a side-by-side comparison table for counter-style dictionaries."""
         all_keys = set(counter1.keys()) | set(counter2.keys())
         if not all_keys:
@@ -2102,16 +2104,16 @@ class ComparisonReporter:
             val2_str = self._safe_str(val2)
             diff_str = self._format_numeric_diff(diff_value) if diff_value != 0 else "+0"
             lines.append(
-                f"{indent_str}{str(key):<{key_width}} {val1_str:<{value_width}} "
+                f"{indent_str}{key!s:<{key_width}} {val1_str:<{value_width}} "
                 f"{val2_str:<{value_width}} {diff_str:<12}{marker}"
             )
 
         return lines
 
-    def _format_cancer_qc_summary(self, metrics1: Dict[str, Any],
-                                  metrics2: Dict[str, Any]) -> List[str]:
+    def _format_cancer_qc_summary(self, metrics1: dict[str, Any],
+                                  metrics2: dict[str, Any]) -> list[str]:
         """Produce a compact, readable summary for cancer QC metrics."""
-        lines: List[str] = []
+        lines: list[str] = []
 
         count1 = metrics1.get('_entry_count')
         count2 = metrics2.get('_entry_count')
@@ -2156,9 +2158,9 @@ class ComparisonReporter:
 
         return lines
 
-    def _summarize_metric_changes(self, metrics1: Dict[str, Any],
-                                  metrics2: Dict[str, Any],
-                                  limit: int = 8) -> List[str]:
+    def _summarize_metric_changes(self, metrics1: dict[str, Any],
+                                  metrics2: dict[str, Any],
+                                  limit: int = 8) -> list[str]:
         """Summarize key metric differences between two samples."""
         all_metrics = set(metrics1.keys()) | set(metrics2.keys())
         diffs = []
@@ -2187,7 +2189,7 @@ class ComparisonReporter:
         text = [d for d in diffs if d[0] == 'text']
         numeric.sort(key=lambda item: item[1], reverse=True)
 
-        lines: List[str] = []
+        lines: list[str] = []
         for entry in numeric[:limit]:
             _, _, metric, val1, val2, delta = entry
             val1_str = self._safe_str(val1)
@@ -2211,7 +2213,7 @@ class ComparisonReporter:
 
         return lines
 
-    def compare_dict_metrics(self, dict1: Dict, dict2: Dict, title: str) -> List[str]:
+    def compare_dict_metrics(self, dict1: dict, dict2: dict, title: str) -> list[str]:
         """Compare two dictionaries and return formatted comparison."""
         lines = [f"\n{title}"]
         lines.append("=" * len(title))
@@ -2258,9 +2260,7 @@ class ComparisonReporter:
                         ratio = val2 / val1 if val1 != 0 else "inf"
 
                         # Format difference with appropriate precision
-                        if isinstance(diff, float) and abs(diff) < 0.001:
-                            diff_str = f"{diff:+.3f}"
-                        elif isinstance(diff, float):
+                        if isinstance(diff, float) and abs(diff) < 0.001 or isinstance(diff, float):
                             diff_str = f"{diff:+.3f}"
                         else:
                             diff_str = f"{diff:+d}"
@@ -2272,13 +2272,12 @@ class ComparisonReporter:
                             ratio_str = str(ratio)
 
                         # Color coding for significant changes
-                        if isinstance(diff, (int, float)) and diff != 0:
-                            if abs(diff) > (abs(val1) * 0.05 if val1 != 0 else 0):  # >5% change
-                                diff_str = f"[CHANGED] {diff_str}"
+                        if isinstance(diff, (int, float)) and diff != 0 and abs(diff) > (abs(val1) * 0.05 if val1 != 0 else 0):  # >5% change
+                            diff_str = f"[CHANGED] {diff_str}"
 
                         diff = diff_str
                         ratio = ratio_str
-                except Exception:
+                except (TypeError, ValueError, ZeroDivisionError):
                     pass
 
             lines.append(f"{key:<{key_width}} {self.format_number(val1):<{value_width}} {self.format_number(val2):<{value_width}} {diff:<12} {ratio:<8}")
@@ -2296,7 +2295,7 @@ class ComparisonReporter:
 
         return lines
 
-    def generate_overlap_analysis(self) -> List[str]:
+    def generate_overlap_analysis(self) -> list[str]:
         """Generate variant overlap analysis."""
         lines = ["\nVariant Overlap Analysis"]
         lines.append("=" * 24)
@@ -2339,7 +2338,7 @@ class ComparisonReporter:
 
         return lines
 
-    def investigate_pcgr_differences(self) -> List[str]:
+    def investigate_pcgr_differences(self) -> list[str]:
         """Deep-dive into PCGR PASS differences to suggest likely causes.
 
         - Categorizes unique variants (by var_type, gene, consequence, impact)
@@ -2429,7 +2428,7 @@ class ComparisonReporter:
 
         return lines
 
-    def generate_file_change_summary(self) -> List[str]:
+    def generate_file_change_summary(self) -> list[str]:
         """Generate a summary of which files have changed based on MD5."""
         lines = ["\nFILE CHANGE SUMMARY (MD5-based)"]
         lines.append("=" * 37)
@@ -2468,7 +2467,7 @@ class ComparisonReporter:
         }
 
         # Process standard files
-        for category, files in file_categories.items():
+        for files in file_categories.values():
             for file_key, description in files:
                 data1 = self.analysis1.get(file_key, {})
                 data2 = self.analysis2.get(file_key, {})
@@ -2476,9 +2475,7 @@ class ComparisonReporter:
                 md5_1 = data1.get('md5')
                 md5_2 = data2.get('md5')
 
-                if md5_1 is None and md5_2 is None:
-                    missing_files.append(description)
-                elif md5_1 is None or md5_2 is None:
+                if md5_1 is None and md5_2 is None or md5_1 is None or md5_2 is None:
                     missing_files.append(description)
                 elif md5_1 == md5_2:
                     identical_files.append(description)
@@ -2496,9 +2493,7 @@ class ComparisonReporter:
             md5_1 = step1.get('md5')
             md5_2 = step2.get('md5')
 
-            if md5_1 is None and md5_2 is None:
-                missing_files.append(step_desc)
-            elif md5_1 is None or md5_2 is None:
+            if md5_1 is None and md5_2 is None or md5_1 is None or md5_2 is None:
                 missing_files.append(step_desc)
             elif md5_1 == md5_2:
                 identical_files.append(step_desc)
@@ -2539,8 +2534,8 @@ class ComparisonReporter:
 
         return lines
 
-    def compare_content_with_md5_check(self, data1: Dict[str, Any], data2: Dict[str, Any],
-                                       title: str, leading_break: bool = True) -> List[str]:
+    def compare_content_with_md5_check(self, data1: dict[str, Any], data2: dict[str, Any],
+                                       title: str, leading_break: bool = True) -> list[str]:
         """Compare content between two run data dicts."""
         first_line = f"{title}" if not leading_break else f"\n{title}"
         lines = [first_line]
@@ -2625,8 +2620,8 @@ class ComparisonReporter:
                 )
             elif key == 'by_quality':
                 order = ['high', 'medium', 'low', 'very_low']
-                def sort_fn(item):
-                    return order.index(item) if item in order else len(order)
+                def sort_fn(item, _order=order):
+                    return _order.index(item) if item in _order else len(_order)
                 lines.extend(
                     self._format_counter_table(counter_titles[key], counter1, counter2,
                                                sort_key=sort_fn, indent=4)
@@ -2641,13 +2636,13 @@ class ComparisonReporter:
             if k.endswith('__details')
         )
 
-        detail_lines: List[str] = []
+        detail_lines: list[str] = []
         for detail_key in detail_keys:
             val1 = metrics1.get(detail_key)
             val2 = metrics2.get(detail_key)
             if val1 == val2:
                 continue
-            base_name = detail_key[:-9] if detail_key.endswith('__details') else detail_key
+            base_name = detail_key.removesuffix('__details')
             detail_lines.append(f"- {base_name} details differ:")
             if val1 is not None and val1 not in ('', 'N/A', 'n/a', 'na'):
                 detail_lines.append(f"    {self.run1_name}: {self._safe_str(val1)}")
@@ -2662,7 +2657,7 @@ class ComparisonReporter:
         lines.append("")
         return lines
 
-    def compare_sv_pipeline_steps(self) -> List[str]:
+    def compare_sv_pipeline_steps(self) -> list[str]:
         """Compare SV pipeline steps using MD5 checks first."""
         lines = ["\nSV Pipeline Steps"]
         lines.append("=" * 31)
@@ -2700,7 +2695,7 @@ class ComparisonReporter:
 
         return lines
 
-    def compare_key_cancer_genes_cnv(self) -> List[str]:
+    def compare_key_cancer_genes_cnv(self) -> list[str]:
         """Compare key cancer genes CNV status - CRITICAL for PAVE impact assessment."""
         lines = ["\nKey Cancer Genes CNV Status"]
         lines.append("=" * 42)
@@ -2765,8 +2760,8 @@ class ComparisonReporter:
         }
         return friendly.get(key, key.replace('_', ' ').title())
 
-    def _compare_dragen_table(self, entry1: Dict[str, Any], entry2: Dict[str, Any]) -> List[str]:
-        lines: List[str] = []
+    def _compare_dragen_table(self, entry1: dict[str, Any], entry2: dict[str, Any]) -> list[str]:
+        lines: list[str] = []
 
         path1 = entry1.get('path')
         path2 = entry2.get('path')
@@ -2813,7 +2808,7 @@ class ComparisonReporter:
 
         return lines
 
-    def compare_dragen_metrics(self) -> List[str]:
+    def compare_dragen_metrics(self) -> list[str]:
         """Compare DRAGEN-specific MultiQC tables between runs."""
         lines = ["\nDRAGEN QC METRIC COMPARISON", "=" * 29]
 
@@ -2838,7 +2833,7 @@ class ComparisonReporter:
 
         return lines
 
-    def exemplar_unique_variants(self) -> List[str]:
+    def exemplar_unique_variants(self) -> list[str]:
         """Pick one exemplar variant from each unique set and explain absence.
 
         Heuristics:
@@ -2965,7 +2960,7 @@ class ComparisonReporter:
             lines.append("  Explanation: " + explanation)
 
         return lines
-    def extract_comparison_metrics(self) -> Dict[str, Any]:
+    def extract_comparison_metrics(self) -> dict[str, Any]:
         """Extract structured metrics from both analyses for JSON export."""
         metrics = {
             'purple': {},
@@ -3079,7 +3074,7 @@ class ComparisonReporter:
 
         return metrics
 
-    def generate_comprehensive_report(self) -> List[str]:
+    def generate_comprehensive_report(self) -> list[str]:
         """Generate the full comprehensive report - focused on content differences."""
         lines = []
 
@@ -3286,7 +3281,7 @@ def _analyze_run(run_path: str, tumor_id: str, normal_id: str, alias: str) -> tu
     return analyzer, analysis
 
 
-def _safe_float(value: Any) -> Optional[float]:
+def _safe_float(value: Any) -> float | None:
     """Convert numeric-like value to float when possible."""
     if value is None:
         return None
@@ -3296,7 +3291,7 @@ def _safe_float(value: Any) -> Optional[float]:
         return None
 
 
-def _extract_numeric_by_token(payload: Any, token: str) -> Optional[float]:
+def _extract_numeric_by_token(payload: Any, token: str) -> float | None:
     """Recursively find first numeric value where a key contains the token."""
     if isinstance(payload, dict):
         for key, value in payload.items():
@@ -3322,10 +3317,14 @@ def _build_compact_summary(
     metadata: dict,
     comparison_metrics: dict
 ) -> dict:
-    """Build compact summary artifact intended for Lambda final status logging."""
+    """Build compact summary artifact intended for Lambda final status logging.
+
+    No WARN band: any numeric metric delta beyond floating-point noise (>= NUMERIC_DELTA_EPSILON)
+    is critical. A bug-fix claim needs to hold up under manual NATA review, not a tolerance band —
+    see docs/comparison-thresholds.md.
+    """
     file_comparison = comparison_metrics.get('file_comparison', {})
     critical_items = []
-    warning_items = []
 
     missing_total = (
         int(file_comparison.get('missing_run1', 0))
@@ -3348,33 +3347,24 @@ def _build_compact_summary(
     for metric_name in ('purity', 'ploidy'):
         v1 = _safe_float(run1_purple.get(metric_name))
         v2 = _safe_float(run2_purple.get(metric_name))
-        if v1 is None or v2 is None or v1 == v2:
+        if v1 is None or v2 is None:
             continue
         delta = abs(v2 - v1)
-        if delta >= 0.05:
-            critical_items.append(f"{metric_name}_delta:{delta:.4f}")
-        else:
-            warning_items.append(f"{metric_name}_delta:{delta:.4f}")
+        if delta >= NUMERIC_DELTA_EPSILON:
+            critical_items.append(f"{metric_name}_delta:{delta:.6f}")
 
     run1_multiqc = comparison_metrics.get('multiqc', {}).get('run1')
     run2_multiqc = comparison_metrics.get('multiqc', {}).get('run2')
     for token in ('tmb', 'msi'):
         m1 = _extract_numeric_by_token(run1_multiqc, token)
         m2 = _extract_numeric_by_token(run2_multiqc, token)
-        if m1 is None or m2 is None or m1 == m2:
+        if m1 is None or m2 is None:
             continue
         delta = abs(m2 - m1)
-        if delta >= 0.05:
-            critical_items.append(f"{token}_delta:{delta:.4f}")
-        else:
-            warning_items.append(f"{token}_delta:{delta:.4f}")
+        if delta >= NUMERIC_DELTA_EPSILON:
+            critical_items.append(f"{token}_delta:{delta:.6f}")
 
-    if critical_items:
-        status = 'FAIL'
-    elif warning_items:
-        status = 'WARN'
-    else:
-        status = 'PASS'
+    status = 'FAIL' if critical_items else 'PASS'
 
     return {
         'pair': pair_name,
@@ -3389,8 +3379,6 @@ def _build_compact_summary(
         },
         'critical_count': len(critical_items),
         'critical_items': critical_items,
-        'warning_count': len(warning_items),
-        'warning_items': warning_items,
         'metrics_impacted': bool(critical_items),
     }
 
@@ -3406,7 +3394,7 @@ def _write_comparison_output(
     analyzer2,
     analysis2: dict,
     alias2: str,
-    metadata: dict = None
+    metadata: dict | None = None
 ):
     """Generate comparison and write report + JSON output."""
     print("  Generating comparison...")
@@ -3566,7 +3554,7 @@ def run_batch_mode_simple_format(args, config, output_dir, pairs_dir):
                 pair_metadata
             )
 
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             print(f"  Error processing {pair_name}: {e}")
             import traceback
             traceback.print_exc()
@@ -3663,7 +3651,7 @@ def run_batch_mode_new_format(args, config, output_dir, pairs_dir):
                     pair_metadata
                 )
 
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 print(f"  Error processing {pair_name}: {e}")
                 continue
 

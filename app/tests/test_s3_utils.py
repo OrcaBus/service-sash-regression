@@ -1,6 +1,5 @@
 from unittest.mock import MagicMock, patch
 
-
 from comparator.s3_utils import download_s3_dir, parse_s3_uri, upload_file
 
 

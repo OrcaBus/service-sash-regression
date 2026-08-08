@@ -14,7 +14,7 @@ os.environ.setdefault("TESTDATA_CONFIG_S3_URI", "s3://bucket/config.yaml")
 os.environ.setdefault("RESULT_S3_PREFIX", "s3://bucket/results/")
 os.environ.setdefault("AWS_DEFAULT_REGION", "ap-southeast-2")
 
-from comparator.lambdas.comparator.handler import handler  # noqa: E402
+from comparator.lambdas.comparator.handler import handler
 
 _CONFIG = {
     "pairs": [
@@ -50,8 +50,6 @@ class TestHandler:
             "status": "PASS",
             "critical_count": 0,
             "critical_items": [],
-            "warning_count": 0,
-            "warning_items": [],
             "metrics_impacted": False,
         }
         captured = []
@@ -71,17 +69,22 @@ class TestHandler:
 
         assert result["compact_summary"]["status"] == "PASS"
         assert result["compact_summary"]["pass_count"] == 1
-        assert result["compact_summary"]["warn_count"] == 0
+        assert result["compact_summary"]["fail_count"] == 0
+        assert "warn_count" not in result["compact_summary"]
         assert any("FINAL_RESULT" in msg for msg in captured)
 
-    def test_warn_status_when_metric_delta_below_threshold(self):
+    def test_fail_status_when_metric_delta_present(self):
+        """No WARN band on numeric deltas: any real purity/ploidy/TMB/MSI difference is a FAIL.
+
+        See docs/comparison-thresholds.md and comprehensive_sash_comparison._build_compact_summary
+        for the actual threshold logic — this only checks the handler passes a FAIL summary
+        through unchanged.
+        """
         cmp_summary = {
-            "status": "WARN",
-            "critical_count": 0,
-            "critical_items": [],
-            "warning_count": 1,
-            "warning_items": ["purity_delta:0.0200"],
-            "metrics_impacted": False,
+            "status": "FAIL",
+            "critical_count": 1,
+            "critical_items": ["purity_delta:0.020000"],
+            "metrics_impacted": True,
         }
         with (
             patch("comparator.lambdas.comparator.handler.load_config", return_value=_CONFIG),
@@ -93,18 +96,16 @@ class TestHandler:
             result = handler({"new_version": "0.7.0", "baseline_version": "0.6.4"}, None)
 
         cs = result["compact_summary"]
-        assert cs["status"] == "WARN"
-        assert cs["warn_count"] == 1
+        assert cs["status"] == "FAIL"
+        assert cs["fail_count"] == 1
         assert cs["pass_count"] == 0
-        assert cs["warning_items"] == ["purity_delta:0.0200"]
+        assert cs["critical_items"] == ["purity_delta:0.020000"]
 
     def test_fail_status_when_key_files_changed(self):
         cmp_summary = {
             "status": "FAIL",
             "critical_count": 1,
             "critical_items": ["changed_key_files:purple_purity,somatic_bcftools"],
-            "warning_count": 0,
-            "warning_items": [],
             "metrics_impacted": True,
         }
         with (
@@ -187,12 +188,12 @@ class TestHandler:
     def test_raises_on_unknown_case_name(self):
         with (
             patch("comparator.lambdas.comparator.handler.load_config", return_value=_CONFIG),
+            pytest.raises(ValueError, match="nonexistent"),
         ):
-            with pytest.raises(ValueError, match="nonexistent"):
-                handler(
-                    {"new_version": "0.7.0", "baseline_version": "0.6.4", "case_name": "nonexistent"},
-                    None,
-                )
+            handler(
+                {"new_version": "0.7.0", "baseline_version": "0.6.4", "case_name": "nonexistent"},
+                None,
+            )
 
     def test_new_output_path_overrides_config_run2(self):
         """Watcher can pass new_output_path directly, bypassing config run2."""

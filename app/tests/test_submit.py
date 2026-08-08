@@ -2,8 +2,9 @@
 
 import json
 import re
+from unittest.mock import MagicMock, patch
+
 import pytest
-from unittest.mock import patch, MagicMock
 
 ENV = {
     "ORCABUS_TOKEN_SECRET_ID": "orcabus/token",
