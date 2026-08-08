@@ -72,7 +72,7 @@ def read_tsv_file(path: str) -> pd.DataFrame:
         return pd.DataFrame()
     try:
         return pd.read_csv(path, sep='\t', low_memory=False)
-    except Exception:
+    except Exception:  # noqa: BLE001
         return pd.DataFrame()
 
 
@@ -169,7 +169,7 @@ class SashRunAnalyzer:
             else:
                 with open(path, 'rt', encoding='utf-8', errors='ignore') as f:
                     return f.read().splitlines()
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             print(f"Error reading {path}: {e}")
             return []
 
@@ -184,7 +184,7 @@ class SashRunAnalyzer:
                     return json.load(f)
             with open(path, 'r', encoding='utf-8') as f:
                 return json.load(f)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             print(f"Error reading JSON {path}: {e}")
             return {}
 
@@ -258,7 +258,7 @@ class SashRunAnalyzer:
                 for chunk in iter(lambda: f.read(4096), b""):
                     hash_md5.update(chunk)
             return hash_md5.hexdigest()
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             print(f"Error calculating MD5 for {path}: {e}")
             return None
 
@@ -362,7 +362,7 @@ class SashRunAnalyzer:
                 'by_chromosome': dict(by_chromosome),
                 'mnv_tagged': mnv_tagged
             }
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             print(f"Error using cyvcf2 for {vcf_path}: {e}")
             return self._count_vcf_manual(vcf_path)
 
@@ -415,7 +415,7 @@ class SashRunAnalyzer:
                 'by_chromosome': dict(by_chromosome),
                 'mnv_tagged': mnv_tagged
             }
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             print(f"Error using pysam for {vcf_path}: {e}")
             return self._count_vcf_manual(vcf_path)
 
@@ -539,7 +539,7 @@ class SashRunAnalyzer:
                 'by_type': dict(by_type),
                 'by_filter': dict(by_filter)
             }
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             print(f"Error using cyvcf2 for SV {vcf_path}: {e}")
             return self._parse_sv_manual(vcf_path)
 
@@ -577,7 +577,7 @@ class SashRunAnalyzer:
                 'by_type': dict(by_type),
                 'by_filter': dict(by_filter)
             }
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             print(f"Error using pysam for SV {vcf_path}: {e}")
             return self._parse_sv_manual(vcf_path)
 
@@ -855,7 +855,7 @@ class SashRunAnalyzer:
                     }
                     sample_data['depths'] = []  # Clear to save memory
 
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             print(f"Error in VCF analysis for {vcf_path}: {e}")
             analysis['error'] = str(e)
 
@@ -1530,7 +1530,7 @@ class SashRunAnalyzer:
                             metrics[f'entry_{idx}'] = self._stringify_value(entry)
                 else:
                     metrics['_value'] = self._stringify_value(data)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             print(f"Warning: could not normalise cancer report table {chosen_path}: {e}")
 
         result['metrics'] = metrics
@@ -1735,7 +1735,7 @@ class SashRunAnalyzer:
                     if human_summary:
                         analysis['pcgr_mutational_signatures']['human_summary'] = human_summary
                         analysis['pcgr_mutational_signatures']['qc_summary_used'] = os.path.relpath(qc_found, self.base_dir)
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001
                     print(f"Warning: could not parse QC summary {qc_found}: {e}")
 
         # Find CPSR tiers/classification file with fallbacks (including .cpsr.grch38.classification.tsv.gz)
@@ -3554,7 +3554,7 @@ def run_batch_mode_simple_format(args, config, output_dir, pairs_dir):
                 pair_metadata
             )
 
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             print(f"  Error processing {pair_name}: {e}")
             import traceback
             traceback.print_exc()
@@ -3651,7 +3651,7 @@ def run_batch_mode_new_format(args, config, output_dir, pairs_dir):
                     pair_metadata
                 )
 
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 print(f"  Error processing {pair_name}: {e}")
                 continue
 

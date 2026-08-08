@@ -46,9 +46,11 @@ class TestRunComparison:
         assert result == expected
 
     def test_raises_on_non_zero_returncode(self, tmp_path):
-        with patch("comparator.comparison.subprocess.run", return_value=_make_mock_result(1, "boom")):
-            with pytest.raises(RuntimeError, match="comprehensive_sash_comparison"):
-                run_comparison(tmp_path / "r1", tmp_path / "r2", "T", "N", tmp_path / "out")
+        with (
+            patch("comparator.comparison.subprocess.run", return_value=_make_mock_result(1, "boom")),
+            pytest.raises(RuntimeError, match="comprehensive_sash_comparison"),
+        ):
+            run_comparison(tmp_path / "r1", tmp_path / "r2", "T", "N", tmp_path / "out")
 
     def test_returns_status_dict_when_no_metrics_json(self, tmp_path):
         def fake_subprocess(cmd, **kwargs):
